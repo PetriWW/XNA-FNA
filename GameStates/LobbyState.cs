@@ -2,18 +2,20 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
+using MyGame.Engine.UI;
+using MyGame.Engine.Core;
 using MyGame.Engine.Networking;
 using Steamworks;
-
-using XnaColor = Microsoft.Xna.Framework.Color;
 
 namespace MyGame.GameStates;
 
 public class LobbyState : GameState
 {
-    private Texture2D? uiTexture;
     private readonly byte[] signalBuffer = new byte[1];
     private readonly int selectedClassId;
+
+    private Button leaveLobbyButton = null!;
+    private Button startMatchButton = null!;
 
     public LobbyState(Game1 game, StateManager stateManager, int chosenClassId) : base(game, stateManager)
     {
@@ -22,13 +24,19 @@ public class LobbyState : GameState
 
     public override void LoadContent()
     {
-        uiTexture = new Texture2D(game.GraphicsDevice, 1, 1);
-        uiTexture.SetData(new[] { XnaColor.White });
-    }
+        Texture2D uiTex = AssetManager.WhitePixel;
 
-    public override void UnloadContent()
-    {
-        uiTexture?.Dispose();
+        leaveLobbyButton = new Button(uiTex, Rectangle.Empty)
+            { Text = "Leave Lobby", NormalColor = Color.Crimson, HoverColor = Color.Red };
+
+        leaveLobbyButton.OnClick += () =>
+        {
+            SteamManager.LeaveLobby();
+            stateManager.ChangeState(new MainMenuState(game, stateManager));
+        };
+
+        startMatchButton = new Button(uiTex, Rectangle.Empty);
+        startMatchButton.OnClick += HandleStartGamePressed;
     }
 
     public override void Update(GameTime gameTime)
@@ -40,6 +48,29 @@ public class LobbyState : GameState
         }
 
         ListenForLobbySignals();
+
+        var viewport = game.GraphicsDevice.Viewport;
+        leaveLobbyButton.Bounds = new Rectangle((viewport.Width / 2) - 100, (viewport.Height / 2) - 60, 200, 50);
+        startMatchButton.Bounds = new Rectangle((viewport.Width / 2) - 100, (viewport.Height / 2) + 10, 200, 50);
+
+        var lobby = SteamManager.CurrentLobby.Value;
+        bool isHost = lobby.Owner.Id == SteamClient.SteamId;
+
+        if (isHost)
+        {
+            startMatchButton.Text = "Start Match";
+            startMatchButton.NormalColor = Color.ForestGreen;
+            startMatchButton.HoverColor = Color.Green;
+            startMatchButton.Update();
+        }
+        else
+        {
+            startMatchButton.Text = "Waiting for Host...";
+            startMatchButton.NormalColor = Color.DarkSlateGray;
+            startMatchButton.HoverColor = Color.DarkSlateGray;
+        }
+
+        leaveLobbyButton.Update();
     }
 
     private void ListenForLobbySignals()
@@ -49,11 +80,8 @@ public class LobbyState : GameState
             var packetData = SteamNetworking.ReadP2PPacket(1);
             if (packetData.HasValue && packetData.Value.Data.Length > 0)
             {
-                byte signalType = packetData.Value.Data[0];
-
-                if (signalType == 99)
+                if (packetData.Value.Data[0] == 99)
                 {
-                    Console.WriteLine("[Lobby Sync]: Start signal received. Locking doors and launching...");
                     stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, selectedClassId));
                 }
             }
@@ -63,13 +91,13 @@ public class LobbyState : GameState
     private void HandleStartGamePressed()
     {
         if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
-
-        Console.WriteLine("[Lobby Sync]: Host initiated match launch. Broadcasting signals to peers...");
-
         var lobby = SteamManager.CurrentLobby.Value;
-        lobby.SetJoinable(false);
 
+        if (lobby.Owner.Id != SteamClient.SteamId) return;
+
+        lobby.SetJoinable(false);
         signalBuffer[0] = 99;
+
         foreach (var member in lobby.Members)
         {
             if (member.Id == SteamClient.SteamId) continue;
@@ -79,28 +107,16 @@ public class LobbyState : GameState
         stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, selectedClassId));
     }
 
-    // Example of calling handle start internally
-    private void CheckHostUIInteraction(Rectangle buttonBounds, Point mousePoint)
-    {
-        if (buttonBounds.Contains(mousePoint)) HandleStartGamePressed();
-    }
-
     public override void Draw(SpriteBatch spriteBatch)
     {
-        game.GraphicsDevice.Clear(XnaColor.FromNonPremultiplied(20, 24, 32, 255));
-        if (uiTexture == null || !SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
+        game.GraphicsDevice.Clear(new Color(20, 24, 32, 255));
+        if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
 
-        var lobby = SteamManager.CurrentLobby.Value;
-        bool isHost = lobby.Owner.Id == SteamClient.SteamId;
+        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);
 
-        DrawButton(spriteBatch, new Rectangle(50, 50, 160, 40), "Leave Lobby", XnaColor.Crimson);
+        leaveLobbyButton.Draw(spriteBatch);
+        startMatchButton.Draw(spriteBatch);
 
-        if (isHost) DrawButton(spriteBatch, new Rectangle(50, 110, 160, 40), "Start Run", XnaColor.ForestGreen);
-        else DrawButton(spriteBatch, new Rectangle(50, 110, 240, 40), "Waiting for Host...", XnaColor.DarkSlateGray);
-    }
-
-    private void DrawButton(SpriteBatch spriteBatch, Rectangle rect, string text, XnaColor color)
-    {
-        if (uiTexture != null) spriteBatch.Draw(uiTexture, rect, color);
+        spriteBatch.End();
     }
 }

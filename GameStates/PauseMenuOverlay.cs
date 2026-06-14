@@ -3,11 +3,10 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using MyGame.Engine.States;
-using MyGame.Engine.UI;
+using MyGame.Engine.UI; // Engine agnostic tools imported here
+using MyGame.Engine.Core;
 using MyGame.Engine.Networking;
 using Steamworks;
-
-using XnaColor = Microsoft.Xna.Framework.Color;
 
 namespace MyGame.GameStates.UI;
 
@@ -17,8 +16,6 @@ public class PauseMenuOverlay
 
     private readonly Game1 game;
     private readonly StateManager stateManager;
-    private readonly Texture2D buttonTexture;
-    private readonly Texture2D overlayTexture;
     private readonly byte[] signalBuffer = new byte[1];
 
     private readonly Button continueButton;
@@ -31,21 +28,12 @@ public class PauseMenuOverlay
         this.game = game;
         this.stateManager = stateManager;
 
-        buttonTexture = new Texture2D(game.GraphicsDevice, 200, 50);
-        XnaColor[] btnData = new XnaColor[200 * 50];
-        Array.Fill(btnData, XnaColor.DarkSlateGray);
-        buttonTexture.SetData(btnData);
+        Texture2D uiTex = AssetManager.WhitePixel;
 
-        overlayTexture = new Texture2D(game.GraphicsDevice, 1, 1);
-        overlayTexture.SetData(new[] { XnaColor.FromNonPremultiplied(0, 0, 0, 180) });
-
-        // No matter what resolution the player uses, the buttons will snap to the direct center.
-        var viewport = game.GraphicsDevice.Viewport;
-        int centerX = (viewport.Width / 2) - 100; // 100 is half the button width
-        int startY = (viewport.Height / 2) - 60;
-
-        continueButton = new Button(buttonTexture, new Vector2(centerX, startY));
-        exitButton = new Button(buttonTexture, new Vector2(centerX, startY + 80));
+        continueButton = new Button(uiTex, Rectangle.Empty)
+            { Text = "Continue", NormalColor = Color.DarkSlateGray, HoverColor = Color.SlateGray };
+        exitButton = new Button(uiTex, Rectangle.Empty)
+            { Text = "Exit to Menu", NormalColor = Color.DarkRed, HoverColor = Color.Red };
 
         continueButton.OnClick += () => { TransmitPauseState(false); };
         exitButton.OnClick += () =>
@@ -55,11 +43,7 @@ public class PauseMenuOverlay
         };
     }
 
-    public void Unload()
-    {
-        buttonTexture.Dispose();
-        overlayTexture.Dispose();
-    }
+    public void Unload() { }
 
     public void Update()
     {
@@ -73,7 +57,12 @@ public class PauseMenuOverlay
 
         if (IsPaused)
         {
-            while (SteamNetworking.IsP2PPacketAvailable(0)) SteamNetworking.ReadP2PPacket(0);
+            var viewport = game.GraphicsDevice.Viewport;
+            int centerX = (viewport.Width / 2) - 100;
+            int startY = (viewport.Height / 2) - 60;
+
+            continueButton.Bounds = new Rectangle(centerX, startY, 200, 50);
+            exitButton.Bounds = new Rectangle(centerX, startY + 80, 200, 50);
 
             continueButton.Update();
             exitButton.Update();
@@ -117,8 +106,7 @@ public class PauseMenuOverlay
     {
         if (IsPaused)
         {
-            spriteBatch.Draw(overlayTexture, game.GraphicsDevice.Viewport.Bounds, XnaColor.White);
-
+            spriteBatch.Draw(AssetManager.WhitePixel, game.GraphicsDevice.Viewport.Bounds, Color.Black * 0.7f);
             continueButton.Draw(spriteBatch);
             exitButton.Draw(spriteBatch);
         }

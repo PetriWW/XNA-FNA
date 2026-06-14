@@ -1,40 +1,33 @@
 ﻿using System;
+using System.Runtime.InteropServices;
 using Flecs.NET.Core;
 using Steamworks;
 using MyGame.Engine.Networking;
 using MyGame.Gameplay.Components;
-using MyGame.Gameplay.Networking;
 
 namespace MyGame.Gameplay.Systems;
 
 public static class NetworkBroadcastSystem
 {
-    // each thread gets its own private buffer, completely preventing memory corruption.
-    [ThreadStatic]
-    private static byte[]? _transformBuffer;
+    private static uint _localSequenceCounter = 0;
 
-    private static uint _outboundSequenceCounter = 0;
-
-    public static void Register(World world)
+    public static void Register(Flecs.NET.Core.World world)
     {
-        world.System<Position, Velocity, CharacterClass, NetworkId>("NetworkBroadcastSystem")
+        world.System<Position, Velocity, NetworkId, NetworkOwner>("NetworkBroadcastSystem")
             .Kind(Ecs.PostUpdate)
-            .With<LocalPlayerTag>()
-            .Interval(1f / 30f)
-            .Each((Entity _, ref Position pos, ref Velocity vel, ref CharacterClass cClass, ref NetworkId netId) =>
+            .Each((Iter it, int i, ref Position pos, ref Velocity vel, ref NetworkId netId, ref NetworkOwner owner) =>
             {
                 if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
 
-                // Lazy load the buffer per-thread without allocating in the hot-path
-                _transformBuffer ??= new byte[System.Runtime.InteropServices.Marshal.SizeOf<PlayerTransformPacket>()];
+                if (owner.Value != SteamClient.SteamId) return;
 
-                _outboundSequenceCounter++;
+                _localSequenceCounter++;
 
                 var packet = new PlayerTransformPacket
                 {
                     PacketType = PacketTypes.Transform,
-                    SequenceNumber = _outboundSequenceCounter,
-                    CharacterClassId = cClass.Id,
+                    SequenceNumber = _localSequenceCounter,
+                    CharacterClassId = 0,
                     X = pos.X,
                     Y = pos.Y,
                     Vx = vel.X,
@@ -42,12 +35,16 @@ public static class NetworkBroadcastSystem
                     EntityNetworkSequenceId = netId.Value
                 };
 
-                packet.SerializeTo(_transformBuffer);
+                int bufferSize = Marshal.SizeOf<PlayerTransformPacket>();
+                byte[] buffer = new byte[bufferSize];
+                packet.SerializeTo(buffer);
 
-                foreach (var member in SteamManager.CurrentLobby.Value.Members)
+                foreach (var peer in SteamManager.CurrentLobby.Value.Members)
                 {
-                    if (member.Id == SteamClient.SteamId) continue;
-                    SteamNetworking.SendP2PPacket(member.Id, _transformBuffer, _transformBuffer.Length, 0, P2PSend.Unreliable);
+                    if (peer.Id != SteamClient.SteamId)
+                    {
+                        SteamNetworking.SendP2PPacket(peer.Id, buffer, buffer.Length, 0, P2PSend.Unreliable);
+                    }
                 }
             });
     }

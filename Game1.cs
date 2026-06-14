@@ -1,12 +1,16 @@
 ﻿using System;
+using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
+using MyGame.Engine.Core;
 using MyGame.GameStates;
-using MyGame.Engine.Networking;
 using MyGame.Gameplay.Systems;
-using MyGame.Gameplay.Networking;
-using Flecs.NET.Core;
+using LiteDB;
+using MyGame.Engine.Networking;
+
+using FlecsWorld = Flecs.NET.Core.World;
+using PhysicsWorld2D = nkast.Aether.Physics2D.Dynamics.World;
 
 namespace MyGame;
 
@@ -18,25 +22,28 @@ public class Game1 : Game
 
     public static Game1 Instance { get; private set; } = null!;
 
-    public World EcsWorld { get; private set; }
-    public RemoteSessionManager SessionManager { get; private set; }
+    public FlecsWorld EcsWorld { get; private set; }
+    public PhysicsWorld2D PhysicsWorld { get; private set; }
+    public LiteDatabase LocalDatabase { get; private set; }
 
     public Game1()
     {
         Instance = this;
+        EcsWorld = FlecsWorld.Create();
+        PhysicsWorld = new PhysicsWorld2D(new nkast.Aether.Physics2D.Common.Vector2(0f, 0f));
 
-        EcsWorld = World.Create();
-        SessionManager = new RemoteSessionManager();
+        string dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MyGame", "SaveData.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+        LocalDatabase = new LiteDatabase(dbPath);
 
         graphics = new GraphicsDeviceManager(this)
         {
-            PreferredBackBufferWidth = 1280,
-            PreferredBackBufferHeight = 720
+           PreferredBackBufferWidth = 1280,
+           PreferredBackBufferHeight = 720
         };
 
         IsFixedTimeStep = true;
         TargetElapsedTime = TimeSpan.FromSeconds(1d / 60d);
-
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
 
@@ -52,12 +59,23 @@ public class Game1 : Game
     {
         spriteBatch = new SpriteBatch(GraphicsDevice);
 
+        AssetManager.Initialize(GraphicsDevice, spriteBatch);
+        SettingsManager.Initialize(this, graphics);
+
+        try
+        {
+           AssetManager.LoadFont("Fonts/DefaultFont.ttf");
+        }
+        catch (System.Exception ex)
+        {
+           System.Console.WriteLine($"[Engine Warning]: Font load failed. Text rendering disabled. {ex.Message}");
+        }
+
         LocalPlayerSystems.Register(EcsWorld);
         RemotePlayerSystems.Register(EcsWorld);
-
-        NetworkReceiverSystem.Register(EcsWorld, SessionManager);
+        NetworkReceiverSystem.Register(EcsWorld);
         NetworkBroadcastSystem.Register(EcsWorld);
-        NetworkCleanupSystem.Register(EcsWorld, SessionManager);
+        NetworkCleanupSystem.Register(EcsWorld);
 
         stateManager.ChangeState(new MainMenuState(this, stateManager));
     }
@@ -66,16 +84,15 @@ public class Game1 : Game
     {
         SteamManager.Update();
         stateManager.Update(gameTime);
-
         base.Update(gameTime);
     }
 
     protected override void Draw(GameTime gameTime)
     {
-        spriteBatch?.Begin();
-        stateManager.Draw(spriteBatch!);
-        spriteBatch?.End();
-
+        if (spriteBatch != null)
+        {
+            stateManager.Draw(spriteBatch);
+        }
         base.Draw(gameTime);
     }
 
@@ -86,6 +103,8 @@ public class Game1 : Game
             spriteBatch?.Dispose();
             SteamManager.Shutdown();
             EcsWorld.Dispose();
+            LocalDatabase.Dispose();
+            AssetManager.UnloadAll();
         }
         base.Dispose(disposing);
     }

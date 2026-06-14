@@ -2,23 +2,24 @@
 using Flecs.NET.Core;
 using MyGame.Engine.Networking;
 using MyGame.Gameplay.Components;
-using MyGame.Gameplay.Networking;
 
 namespace MyGame.Gameplay.Systems;
 
 public static class NetworkCleanupSystem
 {
-	public static void Register(World world, RemoteSessionManager sessionManager)
+	public static void Register(World world)
 	{
 		world.System<NetworkOwner, NetworkId>("NetworkDisconnectSweepSystem")
 			.With<RemotePlayerTag>()
 			.Kind(Ecs.PreUpdate)
-			.Interval(1.0f) // Added optimization: Sweeps once per second instead of every frame
+			.Interval(1.0f)
 			.Each((Iter it, int row, ref NetworkOwner owner, ref NetworkId netId) =>
 			{
+				Entity e = it.Entity(row);
+
 				if (!SteamManager.CurrentLobby.HasValue)
 				{
-					ClearEntity(it, row, netId, sessionManager);
+					e.Destruct();
 					return;
 				}
 
@@ -34,20 +35,9 @@ public static class NetworkCleanupSystem
 
 				if (!isStillInLobby)
 				{
-					Console.WriteLine($"[Network Sync]: Player {owner.Value} left the lobby. Despawning proxy.");
-					ClearEntity(it, row, netId, sessionManager);
+					Console.WriteLine($"[Network Sync]: Player {owner.Value} left the lobby. Purging native proxy.");
+					e.Destruct();
 				}
 			});
-	}
-
-	private static void ClearEntity(Iter it, int row, NetworkId netId, RemoteSessionManager sessionManager)
-	{
-		Entity e = it.Entity(row);
-
-		// Flawlessly removes the session from the dictionary to prevent memory leaks
-		sessionManager.RemoveSession(netId.Value);
-
-		// Safely deferred by the Flecs pipeline
-		e.Destruct();
 	}
 }

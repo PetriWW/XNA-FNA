@@ -24,11 +24,11 @@ public static class SteamManager
             SteamMatchmaking.OnLobbyMemberJoined += OnLobbyMemberJoined;
             SteamNetworking.OnP2PSessionRequest += OnP2PSessionRequest;
 
-            Console.WriteLine($"[Steam]: Always-Online connected successfully as {SteamClient.Name}");
+            Console.WriteLine($"[Steam]: Connected securely via Facepunch wrapper setup as {SteamClient.Name}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Steam Offline Error]: Running in fallback mode. {ex.Message}");
+            Console.WriteLine($"[Steam Offline Error]: {ex.Message}");
             IsSteamActive = false;
         }
     }
@@ -49,18 +49,16 @@ public static class SteamManager
 
             if (isAuthorized)
             {
-                Console.WriteLine($"[Steam]: Authorized P2P handshake accepted from {steamId}");
+                SteamNetworking.AllowP2PPacketRelay(true);
                 SteamNetworking.AcceptP2PSessionWithUser(steamId);
                 return;
             }
         }
-
-        Console.WriteLine($"[Steam Security]: BLOCKED unauthorized P2P request from {steamId}");
     }
 
     public static async void CreateLobby()
     {
-        if (!IsSteamActive || !SteamClient.IsValid) return;
+        if (!IsSteamActive) return;
 
         try
         {
@@ -71,18 +69,17 @@ public static class SteamManager
                 CurrentLobby.Value.SetFriendsOnly();
                 CurrentLobby.Value.SetJoinable(true);
                 originalHostId = SteamClient.SteamId;
-                Console.WriteLine($"[Steam]: Live Multiplayer Lobby Formed! ID: {CurrentLobby.Value.Id}");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Steam Lobby Error]: Failed to construct network instance. {ex.Message}");
+            Console.WriteLine($"[Steam Error]: Failed to create lobby - {ex.Message}");
         }
     }
 
     public static void OpenInviteOverlay()
     {
-        if (IsSteamActive && SteamClient.IsValid && CurrentLobby.HasValue)
+        if (IsSteamActive && CurrentLobby.HasValue)
         {
             SteamFriends.OpenGameInviteOverlay(CurrentLobby.Value.Id);
         }
@@ -99,23 +96,27 @@ public static class SteamManager
                     SteamNetworking.CloseP2PSessionWithUser(member.Id);
                 }
             }
-
             CurrentLobby.Value.Leave();
             CurrentLobby = null;
             originalHostId = null;
-            Console.WriteLine("[Steam]: Safely severed all P2P sockets and left the lobby.");
         }
     }
 
     private static async void OnGameLobbyJoinRequested(Lobby lobby, SteamId friendId)
     {
-        RoomEnter result = await lobby.Join();
-        if (result == RoomEnter.Success)
+        try
         {
-            CurrentLobby = lobby;
-            originalHostId = friendId;
-            Console.WriteLine("[Network]: Connected to the remote lobby successfully!");
-            StateManager.Instance.ChangeState(new CharacterSelectState(Game1.Instance, StateManager.Instance));
+            RoomEnter result = await lobby.Join();
+            if (result == RoomEnter.Success)
+            {
+                CurrentLobby = lobby;
+                originalHostId = friendId;
+                StateManager.Instance.ChangeState(new CharacterSelectState(Game1.Instance, StateManager.Instance));
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Steam Error]: Failed to join lobby - {ex.Message}");
         }
     }
 
@@ -124,42 +125,29 @@ public static class SteamManager
 
     public static void Update()
     {
-        if (IsSteamActive && SteamClient.IsValid)
+        if (!IsSteamActive) return;
+        SteamClient.RunCallbacks();
+
+        if (CurrentLobby.HasValue && originalHostId.HasValue)
         {
-            SteamClient.RunCallbacks();
-
-            if (CurrentLobby.HasValue && originalHostId.HasValue)
+            bool hostStillPresent = false;
+            foreach (var member in CurrentLobby.Value.Members)
             {
-                bool hostStillPresent = false;
-                foreach (var member in CurrentLobby.Value.Members)
-                {
-                    if (member.Id == originalHostId.Value)
-                    {
-                        hostStillPresent = true;
-                        break;
-                    }
-                }
-
-                if (!hostStillPresent)
-                {
-                    Console.WriteLine("[Network Sync]: Critical Authority Lost - The original host left the lobby.");
-                    LeaveLobby();
-                }
+                if (member.Id == originalHostId.Value) hostStillPresent = true;
             }
+            if (!hostStillPresent) LeaveLobby();
         }
     }
 
     public static void Shutdown()
     {
-        if (IsSteamActive && SteamClient.IsValid)
+        if (IsSteamActive)
         {
             LeaveLobby();
-
             SteamMatchmaking.OnLobbyGameCreated -= OnLobbyGameCreated;
             SteamFriends.OnGameLobbyJoinRequested -= OnGameLobbyJoinRequested;
             SteamMatchmaking.OnLobbyMemberJoined -= OnLobbyMemberJoined;
             SteamNetworking.OnP2PSessionRequest -= OnP2PSessionRequest;
-
             SteamClient.Shutdown();
         }
     }

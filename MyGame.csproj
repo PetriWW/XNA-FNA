@@ -13,6 +13,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <None Update="Content\Fonts\DefaultFont.ttf">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+    
+    <ItemGroup>
         <PackageReference Include="aelsi2.Facepunch.Steamworks" Version="2.3.4" />
         <PackageReference Include="Flecs.NET.Release" Version="4.0.3" />
         <PackageReference Include="FontStashSharp.PlatformAgnostic" Version="1.4.0" />
@@ -33,7 +39,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Folder Include="Content\" />
+        <Folder Include="Content\Fonts\" />
         <Folder Include="Gameplay\Prefabs\" />
     </ItemGroup>
 

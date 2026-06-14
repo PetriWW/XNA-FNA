@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
 using MyGame.Engine.UI;
+using MyGame.Engine.Core;
 using MyGame.Engine.Networking;
 
 namespace MyGame.GameStates;
@@ -17,36 +18,44 @@ public class MainMenuState : GameState
 
     public override void LoadContent()
     {
-        Texture2D stdButton = CreateTexture(200, 50, Color.DarkSlateBlue);
+        Texture2D uiTex = AssetManager.WhitePixel;
 
-        // 1. Start Game
-        startButton = new Button(stdButton, new Vector2(540, 280));
+        startButton = new Button(uiTex, Rectangle.Empty)
+        {
+            Text = "Start Game", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue
+        };
         startButton.OnClick += () =>
         {
-            Console.WriteLine("[UI Click]: 'Start Game' button pressed on Main Menu.");
             SteamManager.CreateLobby();
             stateManager.ChangeState(new CharacterSelectState(game, stateManager));
         };
 
-        // 2. Options Button
-        optionsButton = new Button(stdButton, new Vector2(540, 350));
+        optionsButton = new Button(uiTex, Rectangle.Empty)
+        {
+            Text = "Options", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue
+        };
         optionsButton.OnClick += () =>
         {
-            Console.WriteLine("[UI Click]: 'Options' button pressed on Main Menu.");
             stateManager.PushState(new OptionsState(game, stateManager));
         };
 
-        // 3. Quit Button
-        quitButton = new Button(stdButton, new Vector2(540, 420));
-        quitButton.OnClick += () =>
+        quitButton = new Button(uiTex, Rectangle.Empty)
         {
-            Console.WriteLine("[UI Click]: 'Quit Game' button pressed on Main Menu. Terminating process.");
-            game.Exit();
+            Text = "Quit Game", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue
         };
+        quitButton.OnClick += () => game.Exit();
     }
 
     public override void Update(GameTime gameTime)
     {
+        var viewport = game.GraphicsDevice.Viewport;
+        int centerX = (viewport.Width / 2) - 100;
+        int startY = (viewport.Height / 2) - 80;
+
+        startButton.Bounds = new Rectangle(centerX, startY, 200, 50);
+        optionsButton.Bounds = new Rectangle(centerX, startY + 70, 200, 50);
+        quitButton.Bounds = new Rectangle(centerX, startY + 140, 200, 50);
+
         startButton.Update();
         optionsButton.Update();
         quitButton.Update();
@@ -55,18 +64,12 @@ public class MainMenuState : GameState
     public override void Draw(SpriteBatch spriteBatch)
     {
         game.GraphicsDevice.Clear(Color.SlateGray);
+        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);
 
         startButton.Draw(spriteBatch);
         optionsButton.Draw(spriteBatch);
         quitButton.Draw(spriteBatch);
-    }
 
-    private Texture2D CreateTexture(int width, int height, Color color)
-    {
-        Texture2D tex = new Texture2D(game.GraphicsDevice, width, height);
-        Color[] data = new Color[width * height];
-        System.Array.Fill(data, color);
-        tex.SetData(data);
-        return tex;
+        spriteBatch.End();
     }
 }
