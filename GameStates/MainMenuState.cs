@@ -4,7 +4,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
 using MyGame.Engine.UI;
 using MyGame.Engine.Core;
-using MyGame.Engine.Networking;
+using MyGame.Engine.Input;
 
 namespace MyGame.GameStates;
 
@@ -21,42 +21,25 @@ public class MainMenuState : GameState
         Texture2D uiTex = AssetManager.WhitePixel;
 
         startButton = new Button(uiTex, Rectangle.Empty)
-        {
-            Text = "Start Game", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue
-        };
+            { Text = "Start Game", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue };
 
-        // ARCHITECTURE FIX: Await lobby readiness to prevent race-condition flashes
-        startButton.OnClick += async () =>
+        startButton.OnClick += () =>
         {
             startButton.IsEnabled = false;
-            startButton.Text = "Creating Lobby...";
-
-            await SteamManager.CreateLobby();
-
-            if (SteamManager.CurrentLobby.HasValue)
-            {
-                stateManager.ChangeState(new CharacterSelectState(game, stateManager));
-            }
-            else
-            {
-                startButton.IsEnabled = true;
-                startButton.Text = "Start Game";
-            }
+            stateManager.ChangeState(new CharacterSelectState(game, stateManager));
         };
 
         optionsButton = new Button(uiTex, Rectangle.Empty)
-        {
-            Text = "Options", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue
-        };
+            { Text = "Options", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue };
+
         optionsButton.OnClick += () =>
         {
             stateManager.PushState(new OptionsState(game, stateManager));
         };
 
         quitButton = new Button(uiTex, Rectangle.Empty)
-        {
-            Text = "Quit Game", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue
-        };
+            { Text = "Quit Game", NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue };
+
         quitButton.OnClick += () => game.Exit();
     }
 
@@ -70,9 +53,13 @@ public class MainMenuState : GameState
         optionsButton.Bounds = new Rectangle(centerX, startY + 70, 200, 50);
         quitButton.Bounds = new Rectangle(centerX, startY + 140, 200, 50);
 
-        startButton.Update();
-        optionsButton.Update();
-        quitButton.Update();
+        // ARCHITECTURE FIX: Fetch mouse coordinates via InputManager abstractions
+        Point mousePos = InputManager.GetMousePosition();
+        bool isPressed = InputManager.IsUISelectPressed();
+
+        startButton.Update(mousePos, isPressed);
+        optionsButton.Update(mousePos, isPressed);
+        quitButton.Update(mousePos, isPressed);
     }
 
     public override void Draw(SpriteBatch spriteBatch)

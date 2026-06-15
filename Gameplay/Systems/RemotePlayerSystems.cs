@@ -9,12 +9,19 @@ public static class RemotePlayerSystems
 {
 	public static void Register(World world)
 	{
-		world.System<Position, TargetPosition, Velocity>("InterpolateRemotePlayersSystem")
+		world.System<Position, TargetPosition, Velocity, NetworkSequence>("InterpolateRemotePlayersSystem")
 			.With<RemotePlayerTag>()
 			.Without<LocalPlayerTag>()
-			.Each((Iter it, int row, ref Position pos, ref TargetPosition target, ref Velocity vel) =>
+			.Each((Iter it, int row, ref Position pos, ref TargetPosition target, ref Velocity vel, ref NetworkSequence seq) =>
 			{
 				float dt = it.DeltaTime();
+
+				seq.TimeSinceLastPacket += dt;
+				if (seq.TimeSinceLastPacket > 0.25f)
+				{
+					vel.X = 0;
+					vel.Y = 0;
+				}
 
 				target.X += vel.X * dt;
 				target.Y += vel.Y * dt;

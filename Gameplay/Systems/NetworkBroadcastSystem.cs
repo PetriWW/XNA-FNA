@@ -13,13 +13,23 @@ public static class NetworkBroadcastSystem
 
     public static void Register(Flecs.NET.Core.World world)
     {
-        world.System<Position, Velocity, NetworkId, NetworkOwner>("NetworkBroadcastSystem")
+        world.System<Position, Velocity, PreviousVelocity, NetworkId, NetworkOwner>("NetworkBroadcastSystem")
             .Kind(Ecs.PostUpdate)
-            .Each((Iter it, int i, ref Position pos, ref Velocity vel, ref NetworkId netId, ref NetworkOwner owner) =>
+            .Each((Iter it, int i, ref Position pos, ref Velocity vel, ref PreviousVelocity prevVel, ref NetworkId netId, ref NetworkOwner owner) =>
             {
                 if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
-
                 if (owner.Value != SteamClient.SteamId) return;
+
+                bool isMoving = vel.X != 0 || vel.Y != 0;
+                bool wasMoving = prevVel.X != 0 || prevVel.Y != 0;
+
+                // ARCHITECTURE FIX: Zero-Idle Bandwidth. Drops unneeded transmissions when standing still.
+                if (!isMoving && !wasMoving) return;
+
+                // ARCHITECTURE FIX: Escapes dead-reckoning ghosting with guaranteed reliable stop packets.
+                bool isStopping = !isMoving && wasMoving;
+                int channel = isStopping ? 1 : 0;
+                P2PSend sendType = isStopping ? P2PSend.Reliable : P2PSend.Unreliable;
 
                 _localSequenceCounter++;
 
@@ -43,9 +53,12 @@ public static class NetworkBroadcastSystem
                 {
                     if (peer.Id != SteamClient.SteamId)
                     {
-                        SteamNetworking.SendP2PPacket(peer.Id, buffer, buffer.Length, 0, P2PSend.Unreliable);
+                        SteamNetworking.SendP2PPacket(peer.Id, buffer, buffer.Length, channel, sendType);
                     }
                 }
+
+                prevVel.X = vel.X;
+                prevVel.Y = vel.Y;
             });
     }
 }

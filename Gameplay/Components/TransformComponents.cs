@@ -17,3 +17,9 @@ public struct TargetPosition
 	public float X;
 	public float Y;
 }
+
+public struct PreviousVelocity
+{
+	public float X;
+	public float Y;
+}

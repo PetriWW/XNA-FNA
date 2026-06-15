@@ -11,7 +11,7 @@ public static class SteamManager
 {
     public static bool IsSteamActive { get; private set; } = false;
     public static Lobby? CurrentLobby { get; private set; }
-    private static SteamId? originalHostId = null;
+    public static SteamId? KnownHostId { get; private set; }
 
     public static void Initialize()
     {
@@ -20,9 +20,7 @@ public static class SteamManager
             SteamClient.Init(480, true);
             IsSteamActive = true;
 
-            SteamMatchmaking.OnLobbyGameCreated += OnLobbyGameCreated;
             SteamFriends.OnGameLobbyJoinRequested += OnGameLobbyJoinRequested;
-            SteamMatchmaking.OnLobbyMemberJoined += OnLobbyMemberJoined;
             SteamNetworking.OnP2PSessionRequest += OnP2PSessionRequest;
 
             Console.WriteLine($"[Steam]: Connected securely via Facepunch wrapper setup as {SteamClient.Name}");
@@ -38,26 +36,18 @@ public static class SteamManager
     {
         if (CurrentLobby.HasValue)
         {
-            bool isAuthorized = false;
             foreach (var member in CurrentLobby.Value.Members)
             {
                 if (member.Id == steamId)
                 {
-                    isAuthorized = true;
-                    break;
+                    SteamNetworking.AllowP2PPacketRelay(true);
+                    SteamNetworking.AcceptP2PSessionWithUser(steamId);
+                    return;
                 }
-            }
-
-            if (isAuthorized)
-            {
-                SteamNetworking.AllowP2PPacketRelay(true);
-                SteamNetworking.AcceptP2PSessionWithUser(steamId);
-                return;
             }
         }
     }
 
-    // ARCHITECTURE FIX: Changed async void to async Task for execution safety
     public static async Task CreateLobby()
     {
         if (!IsSteamActive) return;
@@ -70,7 +60,9 @@ public static class SteamManager
                 CurrentLobby = lobbyTask.Value;
                 CurrentLobby.Value.SetFriendsOnly();
                 CurrentLobby.Value.SetJoinable(true);
-                originalHostId = SteamClient.SteamId;
+                KnownHostId = SteamClient.SteamId;
+
+                CurrentLobby.Value.SetData("GameState", "Lobby");
             }
         }
         catch (Exception ex)
@@ -100,11 +92,10 @@ public static class SteamManager
             }
             CurrentLobby.Value.Leave();
             CurrentLobby = null;
-            originalHostId = null;
+            KnownHostId = null;
         }
     }
 
-    // ARCHITECTURE FIX: Async Task
     private static async void OnGameLobbyJoinRequested(Lobby lobby, SteamId friendId)
     {
         try
@@ -113,7 +104,10 @@ public static class SteamManager
             if (result == RoomEnter.Success)
             {
                 CurrentLobby = lobby;
-                originalHostId = friendId;
+                KnownHostId = lobby.Owner.Id;
+
+                // ARCHITECTURE FIX: Separation of Concerns.
+                // SteamManager no longer dictates the game rules. Everyone goes to the UI Lobby.
                 StateManager.Instance.ChangeState(new CharacterSelectState(Game1.Instance, StateManager.Instance));
             }
         }
@@ -123,22 +117,18 @@ public static class SteamManager
         }
     }
 
-    private static void OnLobbyMemberJoined(Lobby lobby, Friend friend) { }
-    private static void OnLobbyGameCreated(Lobby lobby, uint ip, ushort port, SteamId serverId) { }
-
     public static void Update()
     {
         if (!IsSteamActive) return;
         SteamClient.RunCallbacks();
 
-        if (CurrentLobby.HasValue && originalHostId.HasValue)
+        if (CurrentLobby.HasValue && KnownHostId.HasValue)
         {
-            bool hostStillPresent = false;
-            foreach (var member in CurrentLobby.Value.Members)
+            if (CurrentLobby.Value.Owner.Id != KnownHostId.Value)
             {
-                if (member.Id == originalHostId.Value) hostStillPresent = true;
+                Console.WriteLine("[Steam]: Host disconnected from server. Forcing drop to Main Menu.");
+                LeaveLobby();
             }
-            if (!hostStillPresent) LeaveLobby();
         }
     }
 
@@ -147,9 +137,7 @@ public static class SteamManager
         if (IsSteamActive)
         {
             LeaveLobby();
-            SteamMatchmaking.OnLobbyGameCreated -= OnLobbyGameCreated;
             SteamFriends.OnGameLobbyJoinRequested -= OnGameLobbyJoinRequested;
-            SteamMatchmaking.OnLobbyMemberJoined -= OnLobbyMemberJoined;
             SteamNetworking.OnP2PSessionRequest -= OnP2PSessionRequest;
             SteamClient.Shutdown();
         }

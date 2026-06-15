@@ -6,7 +6,9 @@ using MyGame.Engine.States;
 using MyGame.Engine.UI;
 using MyGame.Engine.Core;
 using MyGame.Engine.Networking;
+using MyGame.Engine.Input;
 using Steamworks;
+using FontStashSharp;
 
 namespace MyGame.GameStates.UI;
 
@@ -17,26 +19,57 @@ public class PauseMenuOverlay
 
     private readonly Game1 game;
     private readonly StateManager stateManager;
+    private readonly bool isHost;
     private readonly byte[] signalBuffer = new byte[1];
 
     private readonly Button continueButton;
+    private readonly Button inviteButton;
     private readonly Button exitButton;
 
-    private KeyboardState previousKeyboardState;
+    private string networkStatusText = "Unknown Status";
 
-    public PauseMenuOverlay(Game1 game, StateManager stateManager)
+    public PauseMenuOverlay(Game1 game, StateManager stateManager, bool isHost)
     {
         this.game = game;
         this.stateManager = stateManager;
+        this.isHost = isHost;
 
         Texture2D uiTex = AssetManager.WhitePixel;
 
         continueButton = new Button(uiTex, Rectangle.Empty)
             { Text = "Continue", NormalColor = Color.DarkSlateGray, HoverColor = Color.SlateGray };
+
+        inviteButton = new Button(uiTex, Rectangle.Empty)
+            { Text = "Invite Friends", NormalColor = Color.DarkGreen, HoverColor = Color.Green };
+
         exitButton = new Button(uiTex, Rectangle.Empty)
-            { Text = "Exit to Menu", NormalColor = Color.DarkRed, HoverColor = Color.Red };
+            { Text = "Disconnect & Exit", NormalColor = Color.DarkRed, HoverColor = Color.Red };
 
         continueButton.OnClick += () => { TransmitPauseState(false); };
+
+        inviteButton.OnClick += async () =>
+        {
+            if (this.isHost)
+            {
+                // ARCHITECTURE FIX: Lock button to prevent spam while waiting for Steam task to resolve
+                inviteButton.IsEnabled = false;
+
+                if (!SteamManager.CurrentLobby.HasValue)
+                {
+                    await SteamManager.CreateLobby();
+                    SteamManager.CurrentLobby?.SetData("GameState", "InGame");
+                }
+
+                // ARCHITECTURE FIX: Only trigger the native Steam overlay if the lobby creation successfully finished
+                if (SteamManager.CurrentLobby.HasValue)
+                {
+                    SteamManager.OpenInviteOverlay();
+                }
+
+                inviteButton.IsEnabled = true;
+            }
+        };
+
         exitButton.OnClick += () =>
         {
             SteamManager.LeaveLobby();
@@ -48,20 +81,20 @@ public class PauseMenuOverlay
 
     public void Update()
     {
-        var currentKeyboardState = Keyboard.GetState();
         ListenForNetworkSignals();
+        UpdateNetworkStatusText();
 
         if (SteamManager.CurrentLobby.HasValue)
         {
             int currentMembers = SteamManager.CurrentLobby.Value.MemberCount;
-            if (IsPaused && currentMembers < previousMemberCount)
-            {
-                TransmitPauseState(false);
-            }
+
+            if (IsPaused && currentMembers < previousMemberCount) TransmitPauseState(false);
+            if (IsPaused && currentMembers > previousMemberCount && isHost) TransmitPauseState(true);
+
             previousMemberCount = currentMembers;
         }
 
-        if (currentKeyboardState.IsKeyDown(Keys.Escape) && previousKeyboardState.IsKeyUp(Keys.Escape))
+        if (InputManager.IsActionJustPressed(GameActions.Pause))
         {
             TransmitPauseState(!IsPaused);
         }
@@ -69,17 +102,48 @@ public class PauseMenuOverlay
         if (IsPaused)
         {
             var viewport = game.GraphicsDevice.Viewport;
-            int centerX = (viewport.Width / 2) - 100;
-            int startY = (viewport.Height / 2) - 60;
+            int centerX = (viewport.Width / 2) - 125;
+            int startY = (viewport.Height / 2) - 80;
 
-            continueButton.Bounds = new Rectangle(centerX, startY, 200, 50);
-            exitButton.Bounds = new Rectangle(centerX, startY + 80, 200, 50);
+            continueButton.Bounds = new Rectangle(centerX, startY, 250, 45);
 
-            continueButton.Update();
-            exitButton.Update();
+            Point mousePos = InputManager.GetMousePosition();
+            bool isPressed = InputManager.IsUISelectPressed();
+
+            if (isHost)
+            {
+                inviteButton.Bounds = new Rectangle(centerX, startY + 60, 250, 45);
+                exitButton.Bounds = new Rectangle(centerX, startY + 120, 250, 45);
+                inviteButton.Update(mousePos, isPressed);
+            }
+            else
+            {
+                exitButton.Bounds = new Rectangle(centerX, startY + 60, 250, 45);
+            }
+
+            continueButton.Update(mousePos, isPressed);
+            exitButton.Update(mousePos, isPressed);
+        }
+    }
+
+    private void UpdateNetworkStatusText()
+    {
+        if (!SteamManager.IsSteamActive)
+        {
+            networkStatusText = "Network Offline (Local Solo)";
+            return;
         }
 
-        previousKeyboardState = currentKeyboardState;
+        if (!SteamManager.CurrentLobby.HasValue)
+        {
+            networkStatusText = isHost ? "Playing Solo (Lobby Closed)" : "Connection to Host Lost!";
+            return;
+        }
+
+        if (isHost)
+            networkStatusText = $"Hosting Match: {SteamManager.CurrentLobby.Value.MemberCount} Players";
+        else
+            networkStatusText = "Connected to Host";
     }
 
     private void ListenForNetworkSignals()
@@ -117,9 +181,25 @@ public class PauseMenuOverlay
     {
         if (IsPaused)
         {
-            spriteBatch.Draw(AssetManager.WhitePixel, game.GraphicsDevice.Viewport.Bounds, Color.Black * 0.7f);
+            var viewport = game.GraphicsDevice.Viewport;
+            spriteBatch.Draw(AssetManager.WhitePixel, viewport.Bounds, Color.Black * 0.85f);
+
             continueButton.Draw(spriteBatch);
+            if (isHost) inviteButton.Draw(spriteBatch);
             exitButton.Draw(spriteBatch);
+
+            if (AssetManager.IsFontLoaded)
+            {
+                SpriteFontBase font = AssetManager.GetFont(24f);
+                var textSize = font.MeasureString(networkStatusText);
+                System.Numerics.Vector2 textPos = new System.Numerics.Vector2(
+                    (viewport.Width - textSize.X) / 2f,
+                    (viewport.Height / 2f) - 150
+                );
+
+                FSColor fsColor = new FSColor(Color.LightSkyBlue.R, Color.LightSkyBlue.G, Color.LightSkyBlue.B, (byte)255);
+                font.DrawText(AssetManager.FontRenderer, networkStatusText, textPos, fsColor);
+            }
         }
     }
 }

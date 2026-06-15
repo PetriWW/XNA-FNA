@@ -6,13 +6,16 @@ namespace MyGame.Engine.Networking;
 
 public static class PacketTypes
 {
+    // Physics & Game Data (Channels 0 & 1)
     public const byte Transform = 1;
     public const byte Spawn = 2;
     public const byte DynamicString = 3;
 
+    // UI & State Control (Channel 2)
     public const byte LobbyStart = 10;
     public const byte PauseGame = 11;
     public const byte ResumeGame = 12;
+    public const byte PlayerReady = 13;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]

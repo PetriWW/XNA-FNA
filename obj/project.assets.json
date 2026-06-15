@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "targets": {
     "net10.0": {
       "aelsi2.Facepunch.Steamworks/2.3.4": {
@@ -174,6 +174,41 @@
         },
         "runtime": {
           "lib/netstandard2.0/FontStashSharp.Rasterizers.StbTrueTypeSharp.dll": {}
+        }
+      },
+      "ImGui.NET/1.91.6.1": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/ImGui.NET.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/ImGui.NET.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/linux-x64/native/libcimgui.so": {
+            "assetType": "native",
+            "rid": "linux-x64"
+          },
+          "runtimes/osx/native/libcimgui.dylib": {
+            "assetType": "native",
+            "rid": "osx"
+          },
+          "runtimes/win-arm64/native/cimgui.dll": {
+            "assetType": "native",
+            "rid": "win-arm64"
+          },
+          "runtimes/win-x64/native/cimgui.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x86/native/cimgui.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          }
         }
       },
       "LiteDB/5.0.21": {
@@ -401,6 +436,29 @@
         "lib/netstandard2.0/FontStashSharp.Rasterizers.StbTrueTypeSharp.dll"
       ]
     },
+    "ImGui.NET/1.91.6.1": {
+      "sha512": "Ph3j8pO6UM28PPJWP+5LEJSPVPkd8ivpVS8tRyY9b0IHn1HDIrMZ2o/FdiXaYW6YhNxMHmbevw6Jcfs+IDKi0Q==",
+      "type": "package",
+      "path": "imgui.net/1.91.6.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "build/net40/ImGui.NET.targets",
+        "imgui.net.1.91.6.1.nupkg.sha512",
+        "imgui.net.nuspec",
+        "lib/net6.0/ImGui.NET.dll",
+        "lib/net6.0/ImGui.NET.xml",
+        "lib/net8.0/ImGui.NET.dll",
+        "lib/net8.0/ImGui.NET.xml",
+        "lib/netstandard2.0/ImGui.NET.dll",
+        "lib/netstandard2.0/ImGui.NET.xml",
+        "runtimes/linux-x64/native/libcimgui.so",
+        "runtimes/osx/native/libcimgui.dylib",
+        "runtimes/win-arm64/native/cimgui.dll",
+        "runtimes/win-x64/native/cimgui.dll",
+        "runtimes/win-x86/native/cimgui.dll"
+      ]
+    },
     "LiteDB/5.0.21": {
       "sha512": "ykJ7ffFl7P9YQKR/PLci6zupiLrsSCNkOTiw6OtzntH7d2kCYp5L1+3a/pksKgTEHcJBoPXFtg7VZSGVBseN9w==",
       "type": "package",
@@ -459,6 +517,7 @@
       "FNA >= 1.0.0",
       "Flecs.NET.Release >= 4.0.3",
       "FontStashSharp.PlatformAgnostic >= 1.4.0",
+      "ImGui.NET >= 1.91.6.1",
       "LiteDB >= 5.0.21",
       "aelsi2.Facepunch.Steamworks >= 2.3.4"
     ]
@@ -486,6 +545,7 @@
       },
       "frameworks": {
         "net10.0": {
+          "framework": "net10.0",
           "targetAlias": "net10.0",
           "projectReferences": {
             "C:\\Users\\Petri\\Desktop\\Dev\\FNA\\FNA.Core.csproj": {
@@ -508,6 +568,7 @@
     },
     "frameworks": {
       "net10.0": {
+        "framework": "net10.0",
         "targetAlias": "net10.0",
         "dependencies": {
           "Aether.Physics2D": {
@@ -521,6 +582,10 @@
           "FontStashSharp.PlatformAgnostic": {
             "target": "Package",
             "version": "[1.4.0, )"
+          },
+          "ImGui.NET": {
+            "target": "Package",
+            "version": "[1.91.6.1, )"
           },
           "LiteDB": {
             "target": "Package",

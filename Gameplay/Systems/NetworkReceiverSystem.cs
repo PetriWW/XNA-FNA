@@ -68,7 +68,23 @@ public static class NetworkReceiverSystem
 
         ulong netId = packet.EntityNetworkSequenceId;
 
-        if (!NetworkShadows.TryGetValue(netId, out Entity remoteShadow)) return;
+        // AUTO-HEAL LATE JOINERS: Catch updates from unannounced players mid-match
+        if (!NetworkShadows.TryGetValue(netId, out Entity remoteShadow))
+        {
+            string entityLookupName = $"p_{netId}";
+            var mockTransform = new PlayerTransformPacket
+            {
+                X = packet.X,
+                Y = packet.Y,
+                Vx = packet.Vx,
+                Vy = packet.Vy,
+                CharacterClassId = packet.CharacterClassId,
+                EntityNetworkSequenceId = packet.EntityNetworkSequenceId
+            };
+            remoteShadow = PlayerFactory.CreateRemote(world, entityLookupName, mockTransform, senderId);
+            NetworkShadows[netId] = remoteShadow;
+            Console.WriteLine($"[Network Handshake]: Auto-spawned mid-match late joiner: {entityLookupName}");
+        }
 
         if (!remoteShadow.IsAlive())
         {
@@ -80,6 +96,8 @@ public static class NetworkReceiverSystem
         if (packet.SequenceNumber < currentSequence.LatestSequence) return;
 
         currentSequence.LatestSequence = packet.SequenceNumber;
+        currentSequence.TimeSinceLastPacket = 0f; // Window-drag desync protection tick reset
+
         remoteShadow.Set(new TargetPosition { X = packet.X, Y = packet.Y });
         remoteShadow.Set(new Velocity { X = packet.Vx, Y = packet.Vy });
     }

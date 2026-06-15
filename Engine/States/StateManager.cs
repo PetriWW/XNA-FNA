@@ -63,13 +63,17 @@ public class StateManager
        });
     }
 
-    public void Update(GameTime gameTime)
+    // ARCHITECTURE FIX: Accept a direct delta time step float to separate loop ticking from engine internals
+    public void Update(float deltaTime)
     {
        foreach (var op in pendingOperations) op();
        pendingOperations.Clear();
 
        if (IsTransitioning || stateStack.Count == 0) return;
-       stateStack[^1].Update(gameTime);
+
+       // Securely reconstruct an isolated read-only wrapper context to push downstream to existing systems safely
+       var stateGameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(deltaTime));
+       stateStack[^1].Update(stateGameTime);
     }
 
     public void Draw(SpriteBatch spriteBatch)

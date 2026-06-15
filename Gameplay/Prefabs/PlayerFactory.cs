@@ -16,7 +16,6 @@ public static class PlayerFactory
     public static Entity CreateLocal(Flecs.NET.Core.World world, int classId)
     {
         ulong uniqueId = NetworkIdGenerator.GetNext();
-
         string entityLookupName = $"p_{uniqueId}";
 
         float startX = 400f / PixelsPerMeter;
@@ -24,7 +23,6 @@ public static class PlayerFactory
         float radiusInMeters = 16f / PixelsPerMeter;
 
         var initialPosition = new AetherVector2(startX, startY);
-
         var aetherBody = Game1.Instance.PhysicsWorld.CreateCircle(radiusInMeters, 1f, initialPosition, nkast.Aether.Physics2D.Dynamics.BodyType.Dynamic);
 
         aetherBody.FixedRotation = true;
@@ -36,6 +34,7 @@ public static class PlayerFactory
             .Set(new LocalInput { AxisX = 0, AxisY = 0 })
             .Set(new Position { X = 400, Y = 300 })
             .Set(new Velocity { X = 0, Y = 0 })
+            .Set(new PreviousVelocity { X = 0, Y = 0 })
             .Set(new CharacterClass { Id = classId })
             .Set(new NetworkOwner { Value = SteamClient.SteamId })
             .Set(new NetworkId { Value = uniqueId })
@@ -53,6 +52,6 @@ public static class PlayerFactory
             .Set(new CharacterClass { Id = packet.CharacterClassId })
             .Set(new NetworkOwner { Value = senderId })
             .Set(new NetworkId { Value = packet.EntityNetworkSequenceId })
-            .Set(new NetworkSequence { LatestSequence = packet.SequenceNumber });
+            .Set(new NetworkSequence { LatestSequence = packet.SequenceNumber, TimeSinceLastPacket = 0f });
     }
 }

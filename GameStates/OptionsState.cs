@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
 using MyGame.Engine.UI;
 using MyGame.Engine.Core;
+using MyGame.Engine.Input;
 
 namespace MyGame.GameStates;
 
@@ -62,10 +63,14 @@ public class OptionsState : GameState
         toggleFullscreenButton.NormalColor = _pendingFullscreen ? Color.DarkGreen : Color.Black;
         toggleFullscreenButton.HoverColor = _pendingFullscreen ? Color.Green : Color.DarkGray;
 
-        res720pButton.Update();
-        res1080pButton.Update();
-        toggleFullscreenButton.Update();
-        backButton.Update();
+        // ARCHITECTURE FIX: Centralized peripheral delegation
+        Point mousePos = InputManager.GetMousePosition();
+        bool isPressed = InputManager.IsUISelectPressed();
+
+        res720pButton.Update(mousePos, isPressed);
+        res1080pButton.Update(mousePos, isPressed);
+        toggleFullscreenButton.Update(mousePos, isPressed);
+        backButton.Update(mousePos, isPressed);
     }
 
     public override void Draw(SpriteBatch spriteBatch)

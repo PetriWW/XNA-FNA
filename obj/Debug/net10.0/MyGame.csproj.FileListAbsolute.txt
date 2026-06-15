@@ -51,3 +51,9 @@ C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\fnalibs\FNA3D.dll
 C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\fnalibs\libtheorafile.dll
 C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\fnalibs\SDL3.dll
 C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\fnalibs\steam_api.dll
+C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\ImGui.NET.dll
+C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\runtimes\linux-x64\native\libcimgui.so
+C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\runtimes\osx\native\libcimgui.dylib
+C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\runtimes\win-arm64\native\cimgui.dll
+C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\runtimes\win-x64\native\cimgui.dll
+C:\Users\Petri\Desktop\Dev\FNA\MyGame\bin\Debug\net10.0\runtimes\win-x86\native\cimgui.dll

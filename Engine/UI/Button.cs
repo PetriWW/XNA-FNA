@@ -1,11 +1,9 @@
 ﻿using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using Microsoft.Xna.Framework.Input;
 using MyGame.Engine.Core;
 using FontStashSharp;
 
-using XnaVector2 = Microsoft.Xna.Framework.Vector2;
 using NumericsVector2 = System.Numerics.Vector2;
 
 namespace MyGame.Engine.UI;
@@ -13,8 +11,7 @@ namespace MyGame.Engine.UI;
 public class Button
 {
     private readonly Texture2D texture;
-    private MouseState currentMouse;
-    private MouseState previousMouse;
+    private bool wasLeftButtonPressed;
 
     public event Action? OnClick;
 
@@ -26,8 +23,8 @@ public class Button
     public Color HoverColor { get; set; } = Color.SlateBlue;
     public Color TextColor { get; set; } = Color.White;
 
-    // ARCHITECTURE FIX: UI Disabled State Support
     public bool IsEnabled { get; set; } = true;
+    public bool IsHovered { get; private set; } = false;
 
     public Button(Texture2D texture, Rectangle bounds)
     {
@@ -35,28 +32,24 @@ public class Button
         this.Bounds = bounds;
     }
 
-    public void Update()
+    // ARCHITECTURE FIX: Inversion of Control. The containing state feeds button metrics safely.
+    public void Update(Point mousePosition, bool isLeftButtonPressed)
     {
-        if (!IsEnabled) return; // Ignore input if disabled
+        if (!IsEnabled) return;
 
-        previousMouse = currentMouse;
-        currentMouse = Mouse.GetState();
+        IsHovered = Bounds.Contains(mousePosition);
 
-        if (Bounds.Contains(currentMouse.X, currentMouse.Y))
+        if (IsHovered && !isLeftButtonPressed && wasLeftButtonPressed)
         {
-            if (currentMouse.LeftButton == ButtonState.Released && previousMouse.LeftButton == ButtonState.Pressed)
-            {
-                OnClick?.Invoke();
-            }
+            OnClick?.Invoke();
         }
+
+        wasLeftButtonPressed = isLeftButtonPressed;
     }
 
     public void Draw(SpriteBatch spriteBatch)
     {
-        // Visually gray out the button if it is disabled
-        Color btnTint = !IsEnabled ? Color.DimGray :
-                        (Bounds.Contains(currentMouse.X, currentMouse.Y) ? HoverColor : NormalColor);
-
+        Color btnTint = !IsEnabled ? Color.DimGray : (IsHovered ? HoverColor : NormalColor);
         spriteBatch.Draw(texture, Bounds, btnTint);
 
         if (!string.IsNullOrEmpty(Text) && AssetManager.IsFontLoaded)
@@ -70,7 +63,7 @@ public class Button
            );
 
            Color finalTextColor = !IsEnabled ? Color.Gray : TextColor;
-           FSColor fsColor = new FSColor(finalTextColor.R, finalTextColor.G, finalTextColor.B, finalTextColor.A);
+           FSColor fsColor = new FSColor(finalTextColor.R, finalTextColor.G, finalTextColor.B, (byte)255);
 
            font.DrawText(AssetManager.FontRenderer, Text, textPos, fsColor);
         }
