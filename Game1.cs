@@ -5,7 +5,7 @@ using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
 using MyGame.Engine.Core;
 using MyGame.Engine.Input;
-using MyGame.Engine.Debug; // Included for ImGui Debug Controller tracking
+using MyGame.Engine.Debug;
 using MyGame.GameStates;
 using MyGame.Gameplay.Systems;
 using LiteDB;
@@ -22,7 +22,6 @@ public class Game1 : Game
     private SpriteBatch? spriteBatch;
     private readonly StateManager stateManager;
 
-    // ARCHITECTURE FIX: Clean float-based constant tracking for the accumulator boundaries
     private const float LogicTickRate = 1f / 60f;
     private double _timeAccumulator = 0.0;
 
@@ -32,14 +31,13 @@ public class Game1 : Game
     public PhysicsWorld2D PhysicsWorld { get; private set; }
     public LiteDatabase LocalDatabase { get; private set; }
 
-    // ARCHITECTURE ADDITION: ImGui Modular Interface Endpoint
     public DebugUIManager DebugUI { get; private set; } = null!;
 
     public Game1()
     {
         Instance = this;
         EcsWorld = FlecsWorld.Create();
-        PhysicsWorld = new PhysicsWorld2D(new nkast.Aether.Physics2D.Common.Vector2(0f, 0f));
+        PhysicsWorld = new PhysicsWorld2D(new nkast.Aether.Physics2D.Common.Vector2(0f, 20f));
 
         string dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MyGame", "SaveData.db");
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
@@ -51,7 +49,6 @@ public class Game1 : Game
            PreferredBackBufferHeight = 720
         };
 
-        // ARCHITECTURE FIX: Unlocks FNA graphics rendering performance for high refresh rate monitors
         IsFixedTimeStep = false;
         graphics.SynchronizeWithVerticalRetrace = true;
 
@@ -71,7 +68,6 @@ public class Game1 : Game
     protected override void LoadContent()
     {
         spriteBatch = new SpriteBatch(GraphicsDevice);
-
         AssetManager.Initialize(GraphicsDevice, spriteBatch);
         SettingsManager.Initialize(this, graphics);
 
@@ -84,7 +80,6 @@ public class Game1 : Game
            System.Console.WriteLine($"[Engine Warning]: Font load failed. Text rendering disabled. {ex.Message}");
         }
 
-        // ARCHITECTURE ADDITION: Load the interactive debug overlay window context
         DebugUI = new DebugUIManager();
         DebugUI.Initialize(this);
 
@@ -100,13 +95,13 @@ public class Game1 : Game
     protected override void Update(GameTime gameTime)
     {
         SteamManager.Update();
-        InputManager.Update(); // Hardware polled cleanly ONCE at structural head of thread tick
 
-        // ARCHITECTURE FIX: Implements Fixed Timestep Accumulator loop boundary logic
+        // ARCHITECTURE FIX: Hardware polling must happen exactly ONCE per visual frame,
+        // outside of the logic accumulator. This guarantees fast inputs are never overwritten.
+        InputManager.Update();
+
         _timeAccumulator += gameTime.ElapsedGameTime.TotalSeconds;
 
-        // ARCHITECTURE FIX: The "Spiral of Death" Cap.
-        // If the OS freezes the window for a long time, drop the lost frames instead of crashing the CPU.
         if (_timeAccumulator > LogicTickRate * 10)
         {
            _timeAccumulator = LogicTickRate * 10;
@@ -123,19 +118,13 @@ public class Game1 : Game
 
     protected override void Draw(GameTime gameTime)
     {
-        // Prevent layout artifacts if state switches midway through rendering pipeline frames
         if (spriteBatch != null && !stateManager.IsTransitioning)
         {
             stateManager.Draw(spriteBatch);
+            DebugUI.Draw(gameTime);
         }
 
         base.Draw(gameTime);
-
-        // ARCHITECTURE ADDITION: Render the ImGui system cleanly directly over the baseline game view elements
-        if (spriteBatch != null && !stateManager.IsTransitioning)
-        {
-            DebugUI.Draw(gameTime);
-        }
     }
 
     protected override void Dispose(bool disposing)

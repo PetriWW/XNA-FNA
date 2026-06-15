@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -27,11 +28,31 @@ public static class AssetManager
         FontRenderer = new FNAFontRenderer(spriteBatch);
     }
 
+    // ARCHITECTURE FIX: Bypasses .NET build caching limitations by normalizing paths
+    // using AppContext.BaseDirectory. If assets are not found inside the active execution bin,
+    // it seamlessly walks back out to pull the live files straight from your raw Content source workspace.
+    private static string ResolveAssetPath(string assetPath)
+    {
+        string localizedPath = assetPath.Replace('/', Path.DirectorySeparatorChar);
+        string baseDir = AppContext.BaseDirectory;
+
+        // 1. Try the compiled execution directory (bin)
+        string binPath = Path.GetFullPath(Path.Combine(baseDir, "Content", localizedPath));
+        if (File.Exists(binPath)) return binPath;
+
+        // 2. Fall back to raw source directories
+        string sourcePath = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Content", localizedPath));
+        if (File.Exists(sourcePath)) return sourcePath;
+
+        throw new FileNotFoundException($"[AssetManager]: Missing asset! Checked both runtime and source directories:\nBin: {binPath}\nSource: {sourcePath}");
+    }
+
     public static Texture2D GetTexture(string assetPath)
     {
         if (Textures.TryGetValue(assetPath, out var existingTex)) return existingTex;
-        string fullPath = Path.Combine("Content", assetPath);
-        if (!File.Exists(fullPath)) throw new FileNotFoundException($"[AssetManager]: Missing texture at {fullPath}");
+
+        string fullPath = ResolveAssetPath(assetPath);
+
         using var stream = File.OpenRead(fullPath);
         var newTex = Texture2D.FromStream(_graphicsDevice, stream);
         Textures[assetPath] = newTex;
@@ -40,8 +61,8 @@ public static class AssetManager
 
     public static void LoadFont(string assetPath)
     {
-        string fullPath = Path.Combine("Content", assetPath);
-        if (!File.Exists(fullPath)) throw new FileNotFoundException($"[AssetManager]: Missing font at {fullPath}");
+        string fullPath = ResolveAssetPath(assetPath);
+
         byte[] ttfData = File.ReadAllBytes(fullPath);
         FontSystem.AddFont(ttfData);
         IsFontLoaded = true;
@@ -51,14 +72,12 @@ public static class AssetManager
 
     public static string GetTextFile(string assetPath)
     {
-        string fullPath = Path.Combine("Content", assetPath);
-        if (!File.Exists(fullPath)) throw new FileNotFoundException($"[AssetManager]: Missing data file at {fullPath}");
+        string fullPath = ResolveAssetPath(assetPath);
         return File.ReadAllText(fullPath);
     }
 
     public static void UnloadAll()
     {
-        // ARCHITECTURE FIX: Added IsDisposed checks to prevent runtime exceptions
         foreach (var tex in Textures.Values)
         {
             if (!tex.IsDisposed) tex.Dispose();

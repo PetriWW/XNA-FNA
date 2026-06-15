@@ -6,7 +6,7 @@ using MyGame.Engine.States;
 using MyGame.Engine.Networking;
 using MyGame.Engine.Rendering;
 using MyGame.Engine.Core;
-using MyGame.Engine.Maps; // Included for access to MapLoader execution
+using MyGame.Engine.Maps;
 using MyGame.Gameplay.Components;
 using MyGame.Gameplay.Prefabs;
 using MyGame.GameStates.UI;
@@ -25,6 +25,8 @@ public class GameplayState : GameState
     private PauseMenuOverlay pauseMenu = null!;
     private Camera2D camera = null!;
 
+    private LevelData loadedMapData = null!;
+
     private readonly bool isHostOrigin;
 
     public bool IsSimulationPaused => pauseMenu != null && pauseMenu.IsPaused;
@@ -41,19 +43,29 @@ public class GameplayState : GameState
     {
         pauseMenu = new PauseMenuOverlay(game, stateManager, isHostOrigin);
         camera = new Camera2D(game.GraphicsDevice);
+
+        // ARCHITECTURE FIX: Set initial camera parameters securely before loading assets
+        camera.Zoom = 2.5f;
         camera.Position = new Vector2(400, 300);
 
-        // ARCHITECTURE UPGRADE: Feed spatial parameters dynamically using the new LDtk pipeline parser return path
-        Vector2 spawnPoint = MapLoader.LoadLevel("Maps/Level1.json", "Level_0") ?? new Vector2(400f, 300f);
+        loadedMapData = MapLoader.LoadLevel("Maps/GameWorld/Entrance.ldtkl");
 
         Entity localAvatar = PlayerFactory.CreateLocal(ecsWorld, selectedClassId);
 
-        // Re-align internal ECS representation safely to structural parsing configuration boundaries
-        localAvatar.Set(new Position { X = spawnPoint.X, Y = spawnPoint.Y });
-        if (localAvatar.Has<PhysicsBody>())
+        if (loadedMapData != null)
         {
-            localAvatar.Get<PhysicsBody>().Value.Position =
-                new nkast.Aether.Physics2D.Common.Vector2(spawnPoint.X / PlayerFactory.PixelsPerMeter, spawnPoint.Y / PlayerFactory.PixelsPerMeter);
+            localAvatar.Set(new Position { X = loadedMapData.SpawnPoint.X, Y = loadedMapData.SpawnPoint.Y });
+            if (localAvatar.Has<PhysicsBody>())
+            {
+                var body = localAvatar.Get<PhysicsBody>().Value;
+                if (body != null)
+                {
+                    body.Position = new nkast.Aether.Physics2D.Common.Vector2(
+                        loadedMapData.SpawnPoint.X / PlayerFactory.PixelsPerMeter,
+                        loadedMapData.SpawnPoint.Y / PlayerFactory.PixelsPerMeter
+                    );
+                }
+            }
         }
 
         if (SteamManager.IsSteamActive && SteamManager.CurrentLobby.HasValue)
@@ -67,8 +79,8 @@ public class GameplayState : GameState
             {
                 PacketType = PacketTypes.Spawn,
                 CharacterClassId = selectedClassId,
-                StartX = spawnPoint.X,
-                StartY = spawnPoint.Y,
+                StartX = loadedMapData?.SpawnPoint.X ?? 400f,
+                StartY = loadedMapData?.SpawnPoint.Y ?? 300f,
                 EntityNetworkSequenceId = localAvatar.Get<NetworkId>().Value
             };
 
@@ -98,12 +110,7 @@ public class GameplayState : GameState
             if (entity.IsAlive()) entity.Destruct();
         }
 
-        // Clean out passive physics fixtures attached to the runtime level before shifting maps
-        var physicalGarbageList = new List<nkast.Aether.Physics2D.Dynamics.Body>(game.PhysicsWorld.BodyList);
-        foreach (var body in physicalGarbageList)
-        {
-            game.PhysicsWorld.Remove(body);
-        }
+        game.PhysicsWorld.Clear();
 
         NetworkReceiverSystem.ClearShadows();
         NetworkIdGenerator.ResetSequence();
@@ -127,8 +134,6 @@ public class GameplayState : GameState
 
         if (!IsSimulationPaused)
         {
-           // ARCHITECTURE FIX: Absolute deterministic simulation lock.
-           // Both engines use the exact float passed from the fixed accumulator step bounds.
            float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
            game.PhysicsWorld.Step(dt);
@@ -151,27 +156,35 @@ public class GameplayState : GameState
 
         spriteBatch.Begin(
             SpriteSortMode.Deferred,
-            BlendState.AlphaBlend,
+            BlendState.NonPremultiplied,
             SamplerState.PointClamp,
             null, null, null,
             camera.GetViewMatrix()
         );
 
-        // ARCHITECTURE FIX: Viewport Frustum Culling limits loops down to visible bounds only
         var viewport = game.GraphicsDevice.Viewport;
-        int viewWidth = viewport.Width;
-        int viewHeight = viewport.Height;
 
-        int startX = (int)(camera.Position.X - viewWidth / 2f) / 100 * 100 - 100;
-        int endX = (int)(camera.Position.X + viewWidth / 2f) / 100 * 100 + 100;
-        int startY = (int)(camera.Position.Y - viewHeight / 2f) / 100 * 100 - 100;
-        int endY = (int)(camera.Position.Y + viewHeight / 2f) / 100 * 100 + 100;
+        // ARCHITECTURE FIX: Secure fallback math to prevent zero or negative camera scale division crashes
+        float currentZoom = camera.Zoom <= 0f ? 1f : camera.Zoom;
 
-        for (int x = startX; x < endX; x += 100)
+        float viewLeft = camera.Position.X - (viewport.Width / 2f / currentZoom) - 64f;
+        float viewRight = camera.Position.X + (viewport.Width / 2f / currentZoom) + 64f;
+        float viewTop = camera.Position.Y - (viewport.Height / 2f / currentZoom) - 64f;
+        float viewBottom = camera.Position.Y + (viewport.Height / 2f / currentZoom) + 64f;
+
+        if (loadedMapData != null && loadedMapData.Tiles != null)
         {
-            for (int y = startY; y < endY; y += 100)
+            foreach (var tile in loadedMapData.Tiles)
             {
-                spriteBatch.Draw(AssetManager.WhitePixel, new Rectangle(x, y, 4, 4), XnaColor.DimGray);
+                // ARCHITECTURE FIX: Strict null texture boundary verification before drawing
+                if (tile.Texture != null && !tile.Texture.IsDisposed)
+                {
+                    if (tile.Position.X >= viewLeft && tile.Position.X <= viewRight &&
+                        tile.Position.Y >= viewTop && tile.Position.Y <= viewBottom)
+                    {
+                        spriteBatch.Draw(tile.Texture, tile.Position, tile.Source, XnaColor.White, 0f, Vector2.Zero, 1f, tile.Effects, 0f);
+                    }
+                }
             }
         }
 
@@ -187,7 +200,6 @@ public class GameplayState : GameState
 
         spriteBatch.End();
 
-        // Separate user interface frame processing explicitly from space coordinate transformations
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);
         pauseMenu.Draw(spriteBatch);
         spriteBatch.End();

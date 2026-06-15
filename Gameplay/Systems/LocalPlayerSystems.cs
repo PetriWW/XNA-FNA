@@ -11,6 +11,7 @@ namespace MyGame.Gameplay.Systems;
 public static class LocalPlayerSystems
 {
     private const float MoveSpeed = 8f;
+    private const float JumpImpulse = 10f;
 
     public static void Register(World world)
     {
@@ -31,24 +32,11 @@ public static class LocalPlayerSystems
             {
                 if (!Game1.Instance.IsActive) return;
 
-                float dx = 0, dy = 0;
-
-                if (InputManager.IsActionActive(GameActions.MoveUp))    dy -= 1;
-                if (InputManager.IsActionActive(GameActions.MoveDown))  dy += 1;
+                float dx = 0;
                 if (InputManager.IsActionActive(GameActions.MoveLeft))  dx -= 1;
                 if (InputManager.IsActionActive(GameActions.MoveRight)) dx += 1;
 
-                if (dx != 0 || dy != 0)
-                {
-                    float len = MathF.Sqrt(dx * dx + dy * dy);
-                    input.AxisX = dx / len;
-                    input.AxisY = dy / len;
-                }
-                else
-                {
-                    input.AxisX = 0;
-                    input.AxisY = 0;
-                }
+                input.AxisX = dx;
             });
 
         world.System<LocalInput, PhysicsBody>("ApplyPhysicsInputSystem")
@@ -56,7 +44,18 @@ public static class LocalPlayerSystems
             .With<LocalPlayerTag>()
             .Each((ref LocalInput input, ref PhysicsBody pBody) =>
             {
-                pBody.Value.LinearVelocity = new AetherVector2(input.AxisX * MoveSpeed, input.AxisY * MoveSpeed);
+                // ARCHITECTURE FIX: Active null body verification guard block
+                if (pBody.Value == null) return;
+
+                var vel = pBody.Value.LinearVelocity;
+                vel.X = input.AxisX * MoveSpeed;
+
+                if (InputManager.IsActionJustPressed(GameActions.Jump) && Math.Abs(vel.Y) < 0.05f)
+                {
+                    vel.Y = -JumpImpulse;
+                }
+
+                pBody.Value.LinearVelocity = vel;
             });
 
         world.System<PhysicsBody, Position, Velocity>("SyncPhysicsToECSSystem")
@@ -64,6 +63,9 @@ public static class LocalPlayerSystems
             .With<LocalPlayerTag>()
             .Each((ref PhysicsBody pBody, ref Position pos, ref Velocity vel) =>
             {
+               // ARCHITECTURE FIX: Protect frame step synchronizer from uninitialized native proxies
+               if (pBody.Value == null) return;
+
                pos.X = pBody.Value.Position.X * PlayerFactory.PixelsPerMeter;
                pos.Y = pBody.Value.Position.Y * PlayerFactory.PixelsPerMeter;
                vel.X = pBody.Value.LinearVelocity.X * PlayerFactory.PixelsPerMeter;

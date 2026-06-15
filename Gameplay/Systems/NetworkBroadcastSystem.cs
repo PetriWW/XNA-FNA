@@ -11,6 +11,9 @@ public static class NetworkBroadcastSystem
 {
     private static uint _localSequenceCounter = 0;
 
+    // ARCHITECTURE FIX: Physics Epsilon threshold to ignore micro-gravity jitters
+    private const float NetworkDeadzoneEpsilon = 0.05f;
+
     public static void Register(Flecs.NET.Core.World world)
     {
         world.System<Position, Velocity, PreviousVelocity, NetworkId, NetworkOwner>("NetworkBroadcastSystem")
@@ -20,13 +23,12 @@ public static class NetworkBroadcastSystem
                 if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
                 if (owner.Value != SteamClient.SteamId) return;
 
-                bool isMoving = vel.X != 0 || vel.Y != 0;
-                bool wasMoving = prevVel.X != 0 || prevVel.Y != 0;
+                // Only trigger network sends if movement is perceptually meaningful
+                bool isMoving = Math.Abs(vel.X) > NetworkDeadzoneEpsilon || Math.Abs(vel.Y) > NetworkDeadzoneEpsilon;
+                bool wasMoving = Math.Abs(prevVel.X) > NetworkDeadzoneEpsilon || Math.Abs(prevVel.Y) > NetworkDeadzoneEpsilon;
 
-                // ARCHITECTURE FIX: Zero-Idle Bandwidth. Drops unneeded transmissions when standing still.
                 if (!isMoving && !wasMoving) return;
 
-                // ARCHITECTURE FIX: Escapes dead-reckoning ghosting with guaranteed reliable stop packets.
                 bool isStopping = !isMoving && wasMoving;
                 int channel = isStopping ? 1 : 0;
                 P2PSend sendType = isStopping ? P2PSend.Reliable : P2PSend.Unreliable;

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Runtime.CompilerServices; // ARCHITECTURE FIX: Added missing compilation directive for Unsafe namespace
+using System.Runtime.CompilerServices;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -20,7 +20,10 @@ public class ImGuiRenderer
     private int _vertexBufferSize;
     private byte[] _indexData = null!;
     private IndexBuffer _indexBuffer = null!;
+
+    // ARCHITECTURE FIX: Restored the missing Index Buffer Size tracker
     private int _indexBufferSize;
+
     private Dictionary<IntPtr, Texture2D> _loadedTextures;
     private int _textureId;
     private IntPtr? _fontTextureId;
@@ -70,7 +73,9 @@ public class ImGuiRenderer
 
     public void BeforeLayout(GameTime gameTime)
     {
-        ImGui.GetIO().DeltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        ImGui.GetIO().DeltaTime = dt > 0f ? dt : (1f / 60f);
+
         UpdateInput();
         ImGui.NewFrame();
     }
@@ -90,10 +95,16 @@ public class ImGuiRenderer
 
     protected virtual void UpdateInput()
     {
-        if (!_game.IsActive) return;
         var io = ImGui.GetIO();
-        var mouse = Mouse.GetState();
 
+        int width = _graphicsDevice.PresentationParameters.BackBufferWidth;
+        int height = _graphicsDevice.PresentationParameters.BackBufferHeight;
+        io.DisplaySize = new System.Numerics.Vector2(Math.Max(1, width), Math.Max(1, height));
+        io.DisplayFramebufferScale = new System.Numerics.Vector2(1f, 1f);
+
+        if (!_game.IsActive) return;
+
+        var mouse = Mouse.GetState();
         io.AddMousePosEvent(mouse.X, mouse.Y);
         io.AddMouseButtonEvent(0, mouse.LeftButton == ButtonState.Pressed);
         io.AddMouseButtonEvent(1, mouse.RightButton == ButtonState.Pressed);
@@ -105,9 +116,6 @@ public class ImGuiRenderer
             io.AddMouseWheelEvent(0, scrollDelta / 120f);
             _scrollWheelValue = mouse.ScrollWheelValue;
         }
-
-        io.DisplaySize = new System.Numerics.Vector2(_graphicsDevice.PresentationParameters.BackBufferWidth, _graphicsDevice.PresentationParameters.BackBufferHeight);
-        io.DisplayFramebufferScale = new System.Numerics.Vector2(1f, 1f);
     }
 
     private void RenderDrawData(ImDrawDataPtr drawData)

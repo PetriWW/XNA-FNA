@@ -26,7 +26,13 @@ public static class PlayerFactory
         var aetherBody = Game1.Instance.PhysicsWorld.CreateCircle(radiusInMeters, 1f, initialPosition, nkast.Aether.Physics2D.Dynamics.BodyType.Dynamic);
 
         aetherBody.FixedRotation = true;
-        aetherBody.LinearDamping = 8f;
+        aetherBody.LinearDamping = 0f;
+
+        // ARCHITECTURE FIX: Safe friction assignment using Aether v2.2.0 FixtureList constraints
+        if (aetherBody.FixtureList.Count > 0)
+        {
+            aetherBody.FixtureList[0].Friction = 0f; // Prevents sticking to walls mid-jump
+        }
 
         return world.Entity(entityLookupName)
             .Add<LocalPlayerTag>()

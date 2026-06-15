@@ -17,15 +17,14 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
         </Content>
+    </ItemGroup>
 
+    <ItemGroup>
         <None Update="steam_appid.txt">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
             <CopyToPublishDirectory>Always</CopyToPublishDirectory>
         </None>
-    </ItemGroup>
-
-    <ItemGroup>
-        <None Include="fnalibs\*.dll">
+        <None Update="fnalibs\*.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
         </None>
