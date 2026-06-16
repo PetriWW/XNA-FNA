@@ -405,6 +405,10 @@
               "target": "Package",
               "version": "[5.0.21, )"
             },
+            "MemoryPack": {
+              "target": "Package",
+              "version": "[1.21.4, )"
+            },
             "aelsi2.Facepunch.Steamworks": {
               "target": "Package",
               "version": "[2.3.4, )"

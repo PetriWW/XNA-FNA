@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "W2W+taWVvLM=",
+  "dgSpecHash": "0OrANElezJ0=",
   "success": true,
   "projectFilePath": "C:\\Users\\Petri\\Desktop\\Dev\\FNA\\MyGame\\MyGame.csproj",
   "expectedPackageFiles": [
@@ -15,6 +15,9 @@
     "C:\\Users\\Petri\\.nuget\\packages\\fontstashsharp.rasterizers.stbtruetypesharp\\1.1.10\\fontstashsharp.rasterizers.stbtruetypesharp.1.1.10.nupkg.sha512",
     "C:\\Users\\Petri\\.nuget\\packages\\imgui.net\\1.91.6.1\\imgui.net.1.91.6.1.nupkg.sha512",
     "C:\\Users\\Petri\\.nuget\\packages\\litedb\\5.0.21\\litedb.5.0.21.nupkg.sha512",
+    "C:\\Users\\Petri\\.nuget\\packages\\memorypack\\1.21.4\\memorypack.1.21.4.nupkg.sha512",
+    "C:\\Users\\Petri\\.nuget\\packages\\memorypack.core\\1.21.4\\memorypack.core.1.21.4.nupkg.sha512",
+    "C:\\Users\\Petri\\.nuget\\packages\\memorypack.generator\\1.21.4\\memorypack.generator.1.21.4.nupkg.sha512",
     "C:\\Users\\Petri\\.nuget\\packages\\stbimagesharp\\2.30.15\\stbimagesharp.2.30.15.nupkg.sha512",
     "C:\\Users\\Petri\\.nuget\\packages\\stbtruetypesharp\\1.26.12\\stbtruetypesharp.1.26.12.nupkg.sha512"
   ],

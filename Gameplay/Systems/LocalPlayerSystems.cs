@@ -12,6 +12,7 @@ public static class LocalPlayerSystems
 {
     private const float MoveSpeed = 8f;
     private const float JumpImpulse = 10f;
+    private const float CoyoteTimeMax = 0.15f;
 
     public static void Register(World world)
     {
@@ -37,22 +38,58 @@ public static class LocalPlayerSystems
                 if (InputManager.IsActionActive(GameActions.MoveRight)) dx += 1;
 
                 input.AxisX = dx;
+
+                if (InputManager.ConsumeAction(GameActions.Jump))
+                {
+                    input.JumpJustPressed = true;
+                }
             });
 
-        world.System<LocalInput, PhysicsBody>("ApplyPhysicsInputSystem")
+        world.System<PhysicsBody, GroundState>("GroundDetectionSystem")
+            .Kind(Ecs.PreUpdate)
+            .With<LocalPlayerTag>()
+            .Each((Iter it, int i, ref PhysicsBody pBody, ref GroundState ground) =>
+            {
+                if (pBody.Value == null) return;
+
+                bool hasFloorContact = false;
+                var ce = pBody.Value.ContactList;
+                while (ce != null)
+                {
+                    if (ce.Contact.IsTouching) hasFloorContact = true;
+                    ce = ce.Next;
+                }
+
+                if (hasFloorContact && pBody.Value.LinearVelocity.Y >= -0.1f)
+                {
+                    ground.IsGrounded = true;
+                    ground.CoyoteTimer = CoyoteTimeMax;
+                }
+                else
+                {
+                    ground.IsGrounded = false;
+                    ground.CoyoteTimer -= it.DeltaTime();
+                }
+            });
+
+        world.System<LocalInput, PhysicsBody, GroundState>("ApplyPhysicsInputSystem")
             .Kind(Ecs.OnUpdate)
             .With<LocalPlayerTag>()
-            .Each((ref LocalInput input, ref PhysicsBody pBody) =>
+            .Each((ref LocalInput input, ref PhysicsBody pBody, ref GroundState ground) =>
             {
-                // ARCHITECTURE FIX: Active null body verification guard block
                 if (pBody.Value == null) return;
 
                 var vel = pBody.Value.LinearVelocity;
                 vel.X = input.AxisX * MoveSpeed;
 
-                if (InputManager.IsActionJustPressed(GameActions.Jump) && Math.Abs(vel.Y) < 0.05f)
+                if (input.JumpJustPressed)
                 {
-                    vel.Y = -JumpImpulse;
+                    if (ground.CoyoteTimer > 0f)
+                    {
+                        vel.Y = -JumpImpulse;
+                        ground.CoyoteTimer = 0f;
+                    }
+                    input.JumpJustPressed = false;
                 }
 
                 pBody.Value.LinearVelocity = vel;
@@ -63,7 +100,6 @@ public static class LocalPlayerSystems
             .With<LocalPlayerTag>()
             .Each((ref PhysicsBody pBody, ref Position pos, ref Velocity vel) =>
             {
-               // ARCHITECTURE FIX: Protect frame step synchronizer from uninitialized native proxies
                if (pBody.Value == null) return;
 
                pos.X = pBody.Value.Position.X * PlayerFactory.PixelsPerMeter;

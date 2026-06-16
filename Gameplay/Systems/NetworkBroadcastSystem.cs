@@ -1,18 +1,21 @@
 ﻿using System;
-using System.Runtime.InteropServices;
+using System.Buffers;
 using Flecs.NET.Core;
 using Steamworks;
 using MyGame.Engine.Networking;
 using MyGame.Gameplay.Components;
+using MemoryPack;
 
 namespace MyGame.Gameplay.Systems;
 
 public static class NetworkBroadcastSystem
 {
     private static uint _localSequenceCounter = 0;
-
-    // ARCHITECTURE FIX: Physics Epsilon threshold to ignore micro-gravity jitters
     private const float NetworkDeadzoneEpsilon = 0.05f;
+
+    private static readonly ArrayBufferWriter<byte> _bufferWriter = new ArrayBufferWriter<byte>(256);
+
+    private static readonly byte[] _reusableBuffer = new byte[256];
 
     public static void Register(Flecs.NET.Core.World world)
     {
@@ -21,23 +24,17 @@ public static class NetworkBroadcastSystem
             .Each((Iter it, int i, ref Position pos, ref Velocity vel, ref PreviousVelocity prevVel, ref NetworkId netId, ref NetworkOwner owner) =>
             {
                 if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
+
                 if (owner.Value != SteamClient.SteamId) return;
 
-                // Only trigger network sends if movement is perceptually meaningful
                 bool isMoving = Math.Abs(vel.X) > NetworkDeadzoneEpsilon || Math.Abs(vel.Y) > NetworkDeadzoneEpsilon;
                 bool wasMoving = Math.Abs(prevVel.X) > NetworkDeadzoneEpsilon || Math.Abs(prevVel.Y) > NetworkDeadzoneEpsilon;
 
                 if (!isMoving && !wasMoving) return;
 
-                bool isStopping = !isMoving && wasMoving;
-                int channel = isStopping ? 1 : 0;
-                P2PSend sendType = isStopping ? P2PSend.Reliable : P2PSend.Unreliable;
-
                 _localSequenceCounter++;
-
                 var packet = new PlayerTransformPacket
                 {
-                    PacketType = PacketTypes.Transform,
                     SequenceNumber = _localSequenceCounter,
                     CharacterClassId = 0,
                     X = pos.X,
@@ -47,15 +44,23 @@ public static class NetworkBroadcastSystem
                     EntityNetworkSequenceId = netId.Value
                 };
 
-                int bufferSize = Marshal.SizeOf<PlayerTransformPacket>();
-                byte[] buffer = new byte[bufferSize];
-                packet.SerializeTo(buffer);
+                _bufferWriter.Clear();
 
-                foreach (var peer in SteamManager.CurrentLobby.Value.Members)
+                var headerSpan = _bufferWriter.GetSpan(1);
+                headerSpan[0] = PacketTypes.Transform;
+                _bufferWriter.Advance(1);
+
+                MemoryPackSerializer.Serialize(_bufferWriter, packet);
+
+                // Zero-Allocation Memory Copy
+                int packetLength = _bufferWriter.WrittenCount;
+                _bufferWriter.WrittenSpan.CopyTo(_reusableBuffer);
+
+                foreach (var member in SteamManager.CurrentLobby.Value.Members)
                 {
-                    if (peer.Id != SteamClient.SteamId)
+                    if (member.Id != SteamClient.SteamId)
                     {
-                        SteamNetworking.SendP2PPacket(peer.Id, buffer, buffer.Length, channel, sendType);
+                        SteamNetworking.SendP2PPacket(member.Id, _reusableBuffer, packetLength, 0, P2PSend.Unreliable);
                     }
                 }
 

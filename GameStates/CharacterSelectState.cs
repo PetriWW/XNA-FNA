@@ -1,7 +1,6 @@
 ﻿using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using Microsoft.Xna.Framework.Input;
 using MyGame.Engine.States;
 using MyGame.Engine.UI;
 using MyGame.Engine.Core;
@@ -18,9 +17,10 @@ public class CharacterSelectState : GameState
     private Button backButton = null!;
 
     private const int DefaultClassId = 0;
-
     private bool isJoineeReady = false;
     private int previousMemberCount = 0;
+
+    private const string TargetMapPath = "Maps/GameWorld.ldtk";
 
     public CharacterSelectState(Game1 game, StateManager stateManager) : base(game, stateManager) { }
 
@@ -30,14 +30,14 @@ public class CharacterSelectState : GameState
 
         startRunButton = new Button(uiTex, Rectangle.Empty);
         multiplayerButton = new Button(uiTex, Rectangle.Empty);
-        backButton = new Button(uiTex, Rectangle.Empty)
-            { Text = "Back to Menu", NormalColor = Color.DarkRed, HoverColor = Color.Red };
+        backButton = new Button(uiTex, Rectangle.Empty) { Text = "Back to Menu", NormalColor = Color.DarkRed, HoverColor = Color.Red };
+
+        NetworkRouter.OnLobbyMatchStart += HandleLobbyMatchStart;
+        NetworkRouter.OnJoineeReady += HandleJoineeReady;
 
         startRunButton.OnClick += () =>
         {
             bool inLobby = SteamManager.CurrentLobby.HasValue;
-
-            // ARCHITECTURE FIX: Safely unpack nullable Lobby Owner ID to fix CS8629 warnings
             bool isHost = !inLobby || (SteamManager.CurrentLobby?.Owner.Id == SteamClient.SteamId);
 
             if (isHost)
@@ -51,16 +51,16 @@ public class CharacterSelectState : GameState
                             SteamNetworking.SendP2PPacket(member.Id, signalBuffer, signalBuffer.Length, 2, P2PSend.Reliable);
                     }
                 }
-                stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, DefaultClassId));
+                stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, DefaultClassId, TargetMapPath));
             }
             else
             {
                 bool isMatchInProgress = SteamManager.CurrentLobby?.GetData("GameState") == "InGame";
                 if (isMatchInProgress)
                 {
-                    stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, DefaultClassId));
+                    stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, DefaultClassId, TargetMapPath));
                 }
-                else if (SteamManager.KnownHostId.HasValue) // Safely unpack HostId
+                else if (SteamManager.KnownHostId.HasValue)
                 {
                     isJoineeReady = !isJoineeReady;
                     byte[] readyBuffer = new byte[] { PacketTypes.PlayerReady };
@@ -90,10 +90,17 @@ public class CharacterSelectState : GameState
         };
     }
 
+    public override void UnloadContent()
+    {
+        NetworkRouter.OnLobbyMatchStart -= HandleLobbyMatchStart;
+        NetworkRouter.OnJoineeReady -= HandleJoineeReady;
+    }
+
+    private void HandleLobbyMatchStart() => stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, DefaultClassId, TargetMapPath));
+    private void HandleJoineeReady() => isJoineeReady = true;
+
     public override void Update(GameTime gameTime)
     {
-        ListenForLobbySignals();
-
         var viewport = game.GraphicsDevice.Viewport;
         int centerX = (viewport.Width / 2) - 100;
         int startY = (viewport.Height / 2) - 80;
@@ -103,8 +110,6 @@ public class CharacterSelectState : GameState
         backButton.Bounds = new Rectangle(centerX, startY + 140, 200, 50);
 
         bool inLobby = SteamManager.CurrentLobby.HasValue;
-
-        // ARCHITECTURE FIX: Safe nullable unpacks
         bool isHost = !inLobby || (SteamManager.CurrentLobby?.Owner.Id == SteamClient.SteamId);
         bool isMatchInProgress = inLobby && (SteamManager.CurrentLobby?.GetData("GameState") == "InGame");
         int currentMembers = inLobby ? (SteamManager.CurrentLobby?.MemberCount ?? 1) : 1;
@@ -187,36 +192,15 @@ public class CharacterSelectState : GameState
         }
 
         Point mousePos = InputManager.GetMousePosition();
-        bool isPressed = InputManager.IsUISelectPressed();
 
-        startRunButton.Update(mousePos, isPressed);
-        multiplayerButton.Update(mousePos, isPressed);
-        backButton.Update(mousePos, isPressed);
+        bool isClicked = InputManager.ConsumeUIClick();
+
+        startRunButton.Update(mousePos, isClicked);
+        multiplayerButton.Update(mousePos, isClicked);
+        backButton.Update(mousePos, isClicked);
     }
 
-    private void ListenForLobbySignals()
-    {
-        if (!SteamManager.IsSteamActive) return;
-
-        while (SteamNetworking.IsP2PPacketAvailable(2))
-        {
-            var packetData = SteamNetworking.ReadP2PPacket(2);
-            if (packetData.HasValue && packetData.Value.Data.Length > 0)
-            {
-                byte signal = packetData.Value.Data[0];
-                if (signal == PacketTypes.LobbyStart)
-                {
-                    stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, DefaultClassId));
-                }
-                else if (signal == PacketTypes.PlayerReady)
-                {
-                    isJoineeReady = true;
-                }
-            }
-        }
-    }
-
-    public override void Draw(SpriteBatch spriteBatch)
+    public override void Draw(SpriteBatch spriteBatch, float alpha = 1f)
     {
         game.GraphicsDevice.Clear(Color.DarkSlateGray);
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);

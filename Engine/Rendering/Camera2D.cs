@@ -1,5 +1,4 @@
 ﻿using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
 
 namespace MyGame.Engine.Rendering;
 
@@ -8,22 +7,39 @@ public class Camera2D
 	public Vector2 Position { get; set; }
 	public float Zoom { get; set; } = 1f;
 	public float Rotation { get; set; } = 0f;
+	public Rectangle? Limits { get; set; }
 
-	private readonly GraphicsDevice _graphicsDevice;
-
-	public Camera2D(GraphicsDevice graphicsDevice)
+	public Camera2D()
 	{
-		_graphicsDevice = graphicsDevice;
 		Position = Vector2.Zero;
 	}
 
-	public Matrix GetViewMatrix()
+	public Vector2 GetClampedPosition(int virtualWidth, int virtualHeight)
 	{
-		Viewport viewport = _graphicsDevice.Viewport;
+		float clampedX = Position.X;
+		float clampedY = Position.Y;
 
-		return Matrix.CreateTranslation(new Vector3(-Position.X, -Position.Y, 0)) *
+		if (Limits.HasValue)
+		{
+			float halfViewWidth = (virtualWidth * 0.5f) / Zoom;
+			float halfViewHeight = (virtualHeight * 0.5f) / Zoom;
+
+			if (Limits.Value.Width < virtualWidth / Zoom) clampedX = Limits.Value.Center.X;
+			else clampedX = MathHelper.Clamp(Position.X, Limits.Value.Left + halfViewWidth, Limits.Value.Right - halfViewWidth);
+
+			if (Limits.Value.Height < virtualHeight / Zoom) clampedY = Limits.Value.Center.Y;
+			else clampedY = MathHelper.Clamp(Position.Y, Limits.Value.Top + halfViewHeight, Limits.Value.Bottom - halfViewHeight);
+		}
+		return new Vector2(clampedX, clampedY);
+	}
+
+	public Matrix GetViewMatrix(int virtualWidth, int virtualHeight)
+	{
+		Vector2 clamped = GetClampedPosition(virtualWidth, virtualHeight);
+
+		return Matrix.CreateTranslation(new Vector3(-(int)clamped.X, -(int)clamped.Y, 0)) *
 		       Matrix.CreateRotationZ(Rotation) *
 		       Matrix.CreateScale(new Vector3(Zoom, Zoom, 1)) *
-		       Matrix.CreateTranslation(new Vector3(viewport.Width * 0.5f, viewport.Height * 0.5f, 0));
+		       Matrix.CreateTranslation(new Vector3(virtualWidth * 0.5f, virtualHeight * 0.5f, 0));
 	}
 }

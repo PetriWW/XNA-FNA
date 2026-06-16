@@ -30,7 +30,6 @@ public class Game1 : Game
     public FlecsWorld EcsWorld { get; private set; }
     public PhysicsWorld2D PhysicsWorld { get; private set; }
     public LiteDatabase LocalDatabase { get; private set; }
-
     public DebugUIManager DebugUI { get; private set; } = null!;
 
     public Game1()
@@ -49,9 +48,6 @@ public class Game1 : Game
            PreferredBackBufferHeight = 720
         };
 
-        IsFixedTimeStep = false;
-        graphics.SynchronizeWithVerticalRetrace = true;
-
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
 
@@ -60,7 +56,6 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        graphics.SynchronizeWithVerticalRetrace = SettingsManager.CurrentSettings.VSync;
         graphics.ApplyChanges();
         base.Initialize();
     }
@@ -71,23 +66,24 @@ public class Game1 : Game
         AssetManager.Initialize(GraphicsDevice, spriteBatch);
         SettingsManager.Initialize(this, graphics);
 
-        try
-        {
-           AssetManager.LoadFont("Fonts/DefaultFont.ttf");
-        }
-        catch (System.Exception ex)
-        {
-           System.Console.WriteLine($"[Engine Warning]: Font load failed. Text rendering disabled. {ex.Message}");
-        }
+        try { AssetManager.LoadFont("Fonts/DefaultFont.ttf"); }
+        catch (System.Exception ex) { EngineLogger.LogError("Font Load Failed", ex); }
 
         DebugUI = new DebugUIManager();
         DebugUI.Initialize(this);
 
         LocalPlayerSystems.Register(EcsWorld);
+
         RemotePlayerSystems.Register(EcsWorld);
+
         NetworkReceiverSystem.Register(EcsWorld);
         NetworkBroadcastSystem.Register(EcsWorld);
         NetworkCleanupSystem.Register(EcsWorld);
+
+        ProjectileSystem.Register(EcsWorld);
+
+        MapSpawningSystem.Register(EcsWorld);
+        TileRenderSystem.Initialize(spriteBatch);
 
         stateManager.ChangeState(new MainMenuState(this, stateManager));
     }
@@ -95,21 +91,15 @@ public class Game1 : Game
     protected override void Update(GameTime gameTime)
     {
         SteamManager.Update();
-
-        // ARCHITECTURE FIX: Hardware polling must happen exactly ONCE per visual frame,
-        // outside of the logic accumulator. This guarantees fast inputs are never overwritten.
-        InputManager.Update();
+        NetworkRouter.RouteControlPackets();
 
         _timeAccumulator += gameTime.ElapsedGameTime.TotalSeconds;
-
-        if (_timeAccumulator > LogicTickRate * 10)
-        {
-           _timeAccumulator = LogicTickRate * 10;
-        }
+        if (_timeAccumulator > LogicTickRate * 10) _timeAccumulator = LogicTickRate * 10;
 
         while (_timeAccumulator >= LogicTickRate)
         {
-           stateManager.Update(LogicTickRate);
+           InputManager.Update();
+           stateManager.Update((float)LogicTickRate);
            _timeAccumulator -= LogicTickRate;
         }
 
@@ -118,9 +108,11 @@ public class Game1 : Game
 
     protected override void Draw(GameTime gameTime)
     {
+        float alpha = (float)(_timeAccumulator / LogicTickRate);
+
         if (spriteBatch != null && !stateManager.IsTransitioning)
         {
-            stateManager.Draw(spriteBatch);
+            stateManager.Draw(spriteBatch, alpha);
             DebugUI.Draw(gameTime);
         }
 
@@ -136,6 +128,7 @@ public class Game1 : Game
             EcsWorld.Dispose();
             LocalDatabase.Dispose();
             AssetManager.UnloadAll();
+            EngineLogger.Shutdown();
         }
         base.Dispose(disposing);
     }

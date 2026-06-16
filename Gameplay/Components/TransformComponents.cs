@@ -6,6 +6,12 @@ public struct Position
 	public float Y;
 }
 
+public struct PreviousPosition
+{
+	public float X;
+	public float Y;
+}
+
 public struct Velocity
 {
 	public float X;

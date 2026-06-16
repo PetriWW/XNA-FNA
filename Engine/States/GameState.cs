@@ -19,5 +19,6 @@ public abstract class GameState
 	public virtual void UnloadContent() { }
 
 	public abstract void Update(GameTime gameTime);
-	public abstract void Draw(SpriteBatch spriteBatch);
+
+	public abstract void Draw(SpriteBatch spriteBatch, float alpha = 1f);
 }

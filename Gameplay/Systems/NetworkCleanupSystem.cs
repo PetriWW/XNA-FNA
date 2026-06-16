@@ -19,6 +19,7 @@ public static class NetworkCleanupSystem
 
 				if (!SteamManager.CurrentLobby.HasValue)
 				{
+					NetworkReceiverSystem.RemoveShadow(netId.Value);
 					e.Destruct();
 					return;
 				}
@@ -36,6 +37,8 @@ public static class NetworkCleanupSystem
 				if (!isStillInLobby)
 				{
 					Console.WriteLine($"[Network Sync]: Player {owner.Value} left the lobby. Purging native proxy.");
+
+					NetworkReceiverSystem.RemoveShadow(netId.Value);
 					e.Destruct();
 				}
 			});

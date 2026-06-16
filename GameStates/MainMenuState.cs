@@ -53,16 +53,15 @@ public class MainMenuState : GameState
         optionsButton.Bounds = new Rectangle(centerX, startY + 70, 200, 50);
         quitButton.Bounds = new Rectangle(centerX, startY + 140, 200, 50);
 
-        // ARCHITECTURE FIX: Fetch mouse coordinates via InputManager abstractions
         Point mousePos = InputManager.GetMousePosition();
-        bool isPressed = InputManager.IsUISelectPressed();
+        bool isClicked = InputManager.ConsumeUIClick();
 
-        startButton.Update(mousePos, isPressed);
-        optionsButton.Update(mousePos, isPressed);
-        quitButton.Update(mousePos, isPressed);
+        startButton.Update(mousePos, isClicked);
+        optionsButton.Update(mousePos, isClicked);
+        quitButton.Update(mousePos, isClicked);
     }
 
-    public override void Draw(SpriteBatch spriteBatch)
+    public override void Draw(SpriteBatch spriteBatch, float alpha = 1f)
     {
         game.GraphicsDevice.Clear(Color.SlateGray);
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);

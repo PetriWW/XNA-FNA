@@ -2,9 +2,11 @@
 using System.Collections.Generic;
 using Flecs.NET.Core;
 using Steamworks;
+using Steamworks.Data;
 using MyGame.Engine.Networking;
 using MyGame.Gameplay.Components;
 using MyGame.Gameplay.Prefabs;
+using MemoryPack;
 
 namespace MyGame.Gameplay.Systems;
 
@@ -12,10 +14,8 @@ public static class NetworkReceiverSystem
 {
     private static readonly Dictionary<ulong, Entity> NetworkShadows = new();
 
-    public static void ClearShadows()
-    {
-        NetworkShadows.Clear();
-    }
+    public static void ClearShadows() => NetworkShadows.Clear();
+    public static void RemoveShadow(ulong networkId) => NetworkShadows.Remove(networkId);
 
     public static void Register(Flecs.NET.Core.World world)
     {
@@ -27,63 +27,34 @@ public static class NetworkReceiverSystem
 
                 while (SteamNetworking.IsP2PPacketAvailable(0))
                 {
-                    var packetData = SteamNetworking.ReadP2PPacket(0);
-                    if (!packetData.HasValue) continue;
-
-                    byte[] buffer = packetData.Value.Data;
-                    SteamId senderId = packetData.Value.SteamId;
-
-                    if (buffer.Length == 0) continue;
-
-                    if (buffer[0] == PacketTypes.Transform)
-                    {
-                        ProcessTransformPacket(_.World(), buffer, senderId);
-                    }
+                    var packet = SteamNetworking.ReadP2PPacket(0);
+                    if (packet.HasValue) ProcessTransformPacket(_.World(), packet.Value);
                 }
 
                 while (SteamNetworking.IsP2PPacketAvailable(1))
                 {
-                    var packetData = SteamNetworking.ReadP2PPacket(1);
-                    if (!packetData.HasValue) continue;
-
-                    byte[] buffer = packetData.Value.Data;
-                    SteamId senderId = packetData.Value.SteamId;
-
-                    if (buffer.Length == 0) continue;
-
-                    if (buffer[0] == PacketTypes.Spawn)
-                    {
-                        ProcessSpawnPacket(_.World(), buffer, senderId);
-                    }
+                    var packet = SteamNetworking.ReadP2PPacket(1);
+                    if (packet.HasValue) ProcessSpawnOrProjectilePacket(_.World(), packet.Value);
                 }
             });
     }
 
-    private static void ProcessTransformPacket(Flecs.NET.Core.World world, byte[] buffer, SteamId senderId)
+    private static void ProcessTransformPacket(Flecs.NET.Core.World world, P2Packet packet)
     {
-        if (senderId == SteamClient.SteamId) return;
+        if (packet.SteamId == SteamClient.SteamId) return;
+        if (packet.Data.Length == 0 || packet.Data[0] != PacketTypes.Transform) return;
 
-        var packet = PlayerTransformPacket.Deserialize(buffer);
-        if (packet.EntityNetworkSequenceId == 0) return;
+        var payloadSpan = new ReadOnlySpan<byte>(packet.Data, 1, packet.Data.Length - 1);
+        var p = MemoryPackSerializer.Deserialize<PlayerTransformPacket>(payloadSpan);
 
-        ulong netId = packet.EntityNetworkSequenceId;
+        if (p.EntityNetworkSequenceId == 0) return;
+        ulong netId = p.EntityNetworkSequenceId;
 
-        // AUTO-HEAL LATE JOINERS: Catch updates from unannounced players mid-match
         if (!NetworkShadows.TryGetValue(netId, out Entity remoteShadow))
         {
             string entityLookupName = $"p_{netId}";
-            var mockTransform = new PlayerTransformPacket
-            {
-                X = packet.X,
-                Y = packet.Y,
-                Vx = packet.Vx,
-                Vy = packet.Vy,
-                CharacterClassId = packet.CharacterClassId,
-                EntityNetworkSequenceId = packet.EntityNetworkSequenceId
-            };
-            remoteShadow = PlayerFactory.CreateRemote(world, entityLookupName, mockTransform, senderId);
+            remoteShadow = PlayerFactory.CreateRemote(world, entityLookupName, p, packet.SteamId);
             NetworkShadows[netId] = remoteShadow;
-            Console.WriteLine($"[Network Handshake]: Auto-spawned mid-match late joiner: {entityLookupName}");
         }
 
         if (!remoteShadow.IsAlive())
@@ -93,45 +64,43 @@ public static class NetworkReceiverSystem
         }
 
         ref var currentSequence = ref remoteShadow.GetMut<NetworkSequence>();
-        if (packet.SequenceNumber < currentSequence.LatestSequence) return;
+        if (p.SequenceNumber < currentSequence.LatestSequence) return;
 
-        currentSequence.LatestSequence = packet.SequenceNumber;
-        currentSequence.TimeSinceLastPacket = 0f; // Window-drag desync protection tick reset
+        currentSequence.LatestSequence = p.SequenceNumber;
+        currentSequence.TimeSinceLastPacket = 0f;
 
-        remoteShadow.Set(new TargetPosition { X = packet.X, Y = packet.Y });
-        remoteShadow.Set(new Velocity { X = packet.Vx, Y = packet.Vy });
+        remoteShadow.Set(new TargetPosition { X = p.X, Y = p.Y });
+        remoteShadow.Set(new Velocity { X = p.Vx, Y = p.Vy });
     }
 
-    private static void ProcessSpawnPacket(Flecs.NET.Core.World world, byte[] buffer, SteamId senderId)
+    private static void ProcessSpawnOrProjectilePacket(Flecs.NET.Core.World world, P2Packet packet)
     {
-        if (senderId == SteamClient.SteamId) return;
+        if (packet.SteamId == SteamClient.SteamId || packet.Data.Length == 0) return;
 
-        var packet = PlayerSpawnPacket.Deserialize(buffer);
-        if (packet.EntityNetworkSequenceId == 0) return;
-
-        ulong netId = packet.EntityNetworkSequenceId;
-
-        if (NetworkShadows.TryGetValue(netId, out Entity existingEntity))
+        if (packet.Data[0] == PacketTypes.Spawn)
         {
-            if (existingEntity.IsAlive()) return;
-            NetworkShadows.Remove(netId);
+            var payloadSpan = new ReadOnlySpan<byte>(packet.Data, 1, packet.Data.Length - 1);
+            var p = MemoryPackSerializer.Deserialize<PlayerSpawnPacket>(payloadSpan);
+
+            if (p.EntityNetworkSequenceId == 0) return;
+            ulong netId = p.EntityNetworkSequenceId;
+
+            if (NetworkShadows.TryGetValue(netId, out Entity existingEntity))
+            {
+                if (existingEntity.IsAlive()) return;
+                NetworkShadows.Remove(netId);
+            }
+
+            string entityLookupName = $"p_{netId}";
+            var mockTransform = new PlayerTransformPacket { X = p.StartX, Y = p.StartY, EntityNetworkSequenceId = p.EntityNetworkSequenceId };
+            Entity newShadow = PlayerFactory.CreateRemote(world, entityLookupName, mockTransform, packet.SteamId);
+            NetworkShadows[netId] = newShadow;
         }
-
-        string entityLookupName = $"p_{netId}";
-
-        var mockTransform = new PlayerTransformPacket
+        else if (packet.Data[0] == PacketTypes.ProjectileSpawn)
         {
-            X = packet.StartX,
-            Y = packet.StartY,
-            Vx = 0,
-            Vy = 0,
-            CharacterClassId = packet.CharacterClassId,
-            EntityNetworkSequenceId = packet.EntityNetworkSequenceId
-        };
-
-        Entity newShadow = PlayerFactory.CreateRemote(world, entityLookupName, mockTransform, senderId);
-        NetworkShadows[netId] = newShadow;
-
-        Console.WriteLine($"[Network Handshake]: Spawned verified remote entity shadow proxy: {entityLookupName}");
+            var payloadSpan = new ReadOnlySpan<byte>(packet.Data, 1, packet.Data.Length - 1);
+            var p = MemoryPackSerializer.Deserialize<ProjectileSpawnPacket>(payloadSpan);
+            ProjectileFactory.Create(world, p.StartX, p.StartY, p.VelocityX, p.VelocityY, p.EntityNetworkSequenceId, packet.SteamId);
+        }
     }
 }

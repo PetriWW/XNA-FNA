@@ -4,6 +4,7 @@ using Steamworks;
 using Steamworks.Data;
 using MyGame.Engine.States;
 using MyGame.GameStates;
+using MyGame.Engine.Core;
 
 namespace MyGame.Engine.Networking;
 
@@ -23,11 +24,11 @@ public static class SteamManager
             SteamFriends.OnGameLobbyJoinRequested += OnGameLobbyJoinRequested;
             SteamNetworking.OnP2PSessionRequest += OnP2PSessionRequest;
 
-            Console.WriteLine($"[Steam]: Connected securely via Facepunch wrapper setup as {SteamClient.Name}");
+            EngineLogger.Log($"Steam Client initialized successfully. Logged in as: {SteamClient.Name}", "STEAM");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Steam Offline Error]: {ex.Message}");
+            EngineLogger.Log($"Steam subsystem offline or unavailable: {ex.Message}", "ERROR");
             IsSteamActive = false;
         }
     }
@@ -42,6 +43,7 @@ public static class SteamManager
                 {
                     SteamNetworking.AllowP2PPacketRelay(true);
                     SteamNetworking.AcceptP2PSessionWithUser(steamId);
+                    EngineLogger.Log($"Accepted standard P2P session with {steamId}", "NETWORK");
                     return;
                 }
             }
@@ -63,11 +65,12 @@ public static class SteamManager
                 KnownHostId = SteamClient.SteamId;
 
                 CurrentLobby.Value.SetData("GameState", "Lobby");
+                EngineLogger.Log($"P2P Lobby successfully established. ID: {CurrentLobby.Value.Id}", "NETWORK");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Steam Error]: Failed to create lobby - {ex.Message}");
+            EngineLogger.LogError("Failed to instantiate Steamworks lobby", ex);
         }
     }
 
@@ -93,6 +96,7 @@ public static class SteamManager
             CurrentLobby.Value.Leave();
             CurrentLobby = null;
             KnownHostId = null;
+            EngineLogger.Log("Left lobby and cleaned up network session contexts.", "NETWORK");
         }
     }
 
@@ -105,15 +109,18 @@ public static class SteamManager
             {
                 CurrentLobby = lobby;
                 KnownHostId = lobby.Owner.Id;
+                EngineLogger.Log($"Lobby Join Request Approved. Routing client to selection screen.", "NETWORK");
 
-                // ARCHITECTURE FIX: Separation of Concerns.
-                // SteamManager no longer dictates the game rules. Everyone goes to the UI Lobby.
                 StateManager.Instance.ChangeState(new CharacterSelectState(Game1.Instance, StateManager.Instance));
+            }
+            else
+            {
+                EngineLogger.Log($"Matchmaking lobby rejection signal received: {result}", "WARNING");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Steam Error]: Failed to join lobby - {ex.Message}");
+            EngineLogger.LogError("Exception tracking lobby insertion request", ex);
         }
     }
 
@@ -126,7 +133,7 @@ public static class SteamManager
         {
             if (CurrentLobby.Value.Owner.Id != KnownHostId.Value)
             {
-                Console.WriteLine("[Steam]: Host disconnected from server. Forcing drop to Main Menu.");
+                EngineLogger.Log("Host disconnected. Forcing drop to Main Menu.", "NETWORK");
                 LeaveLobby();
             }
         }
@@ -140,6 +147,7 @@ public static class SteamManager
             SteamFriends.OnGameLobbyJoinRequested -= OnGameLobbyJoinRequested;
             SteamNetworking.OnP2PSessionRequest -= OnP2PSessionRequest;
             SteamClient.Shutdown();
+            EngineLogger.Log("Steamworks client runtime completely finalized.", "STEAM");
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
@@ -10,77 +11,112 @@ namespace MyGame.GameStates;
 
 public class OptionsState : GameState
 {
-    private Button res720pButton = null!;
-    private Button res1080pButton = null!;
-    private Button toggleFullscreenButton = null!;
+    private Button resButton = null!;
+    private Button fpsButton = null!;
+    private Button vsyncButton = null!;
+    private Button fullscreenButton = null!;
+    private Button applyButton = null!;
     private Button backButton = null!;
 
+    private DisplayMode[] _resolutions = null!;
+    private int _currentResIndex;
+
+    private readonly int[] _fpsOptions = { 30, 60, 120, 240, 0 };
+    private int _currentFpsIndex;
+
     private bool _pendingFullscreen;
+    private bool _pendingVSync;
 
     public OptionsState(Game1 game, StateManager stateManager) : base(game, stateManager) { }
 
     public override void LoadContent()
     {
         Texture2D uiTex = AssetManager.WhitePixel;
+
+        _resolutions = SettingsManager.GetSupportedResolutions();
         _pendingFullscreen = SettingsManager.CurrentSettings.Fullscreen;
+        _pendingVSync = SettingsManager.CurrentSettings.VSync;
 
-        res720pButton = new Button(uiTex, Rectangle.Empty) { Text = "Set 1280 x 720" };
-        res720pButton.OnClick += () => { SettingsManager.ApplyDisplaySettings(1280, 720, _pendingFullscreen, SettingsManager.CurrentSettings.VSync); };
+        _currentResIndex = Array.FindIndex(_resolutions, r => r.Width == SettingsManager.CurrentSettings.Width && r.Height == SettingsManager.CurrentSettings.Height);
+        if (_currentResIndex == -1) _currentResIndex = 0;
 
-        res1080pButton = new Button(uiTex, Rectangle.Empty) { Text = "Set 1920 x 1080" };
-        res1080pButton.OnClick += () => { SettingsManager.ApplyDisplaySettings(1920, 1080, _pendingFullscreen, SettingsManager.CurrentSettings.VSync); };
+        _currentFpsIndex = Array.IndexOf(_fpsOptions, SettingsManager.CurrentSettings.TargetFPS);
+        if (_currentFpsIndex == -1) _currentFpsIndex = 1;
 
-        toggleFullscreenButton = new Button(uiTex, Rectangle.Empty) { Text = "Toggle Fullscreen" };
-        toggleFullscreenButton.OnClick += () =>
+        resButton = new Button(uiTex, Rectangle.Empty) { NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue };
+        fpsButton = new Button(uiTex, Rectangle.Empty) { NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue };
+        vsyncButton = new Button(uiTex, Rectangle.Empty) { NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue };
+        fullscreenButton = new Button(uiTex, Rectangle.Empty) { NormalColor = Color.DarkSlateBlue, HoverColor = Color.SlateBlue };
+
+        applyButton = new Button(uiTex, Rectangle.Empty) { Text = "Apply Settings", NormalColor = Color.DarkGreen, HoverColor = Color.Green };
+        backButton = new Button(uiTex, Rectangle.Empty) { Text = "Back", NormalColor = Color.DarkRed, HoverColor = Color.Red };
+
+        resButton.OnClick += () => { _currentResIndex = (_currentResIndex + 1) % _resolutions.Length; };
+        fpsButton.OnClick += () => { _currentFpsIndex = (_currentFpsIndex + 1) % _fpsOptions.Length; };
+        vsyncButton.OnClick += () => { _pendingVSync = !_pendingVSync; };
+        fullscreenButton.OnClick += () => { _pendingFullscreen = !_pendingFullscreen; };
+
+        applyButton.OnClick += () =>
         {
-            _pendingFullscreen = !_pendingFullscreen;
-            SettingsManager.ApplyDisplaySettings(SettingsManager.CurrentSettings.Width, SettingsManager.CurrentSettings.Height, _pendingFullscreen, SettingsManager.CurrentSettings.VSync);
+            var res = _resolutions[_currentResIndex];
+            int fps = _fpsOptions[_currentFpsIndex];
+            SettingsManager.ApplyDisplaySettings(res.Width, res.Height, _pendingFullscreen, _pendingVSync, fps);
         };
 
-        backButton = new Button(uiTex, Rectangle.Empty) { Text = "Back", NormalColor = Color.DarkRed, HoverColor = Color.Red };
         backButton.OnClick += () => { stateManager.PopState(); };
+
+        UpdateLabels();
+    }
+
+    private void UpdateLabels()
+    {
+        var res = _resolutions[_currentResIndex];
+        resButton.Text = $"Resolution: {res.Width}x{res.Height}";
+
+        int fps = _fpsOptions[_currentFpsIndex];
+        fpsButton.Text = fps == 0 ? "Framerate: Unlimited" : $"Framerate: {fps} FPS";
+
+        vsyncButton.Text = _pendingVSync ? "VSync: ON" : "VSync: OFF";
+        fullscreenButton.Text = _pendingFullscreen ? "Fullscreen: ON" : "Fullscreen: OFF";
     }
 
     public override void Update(GameTime gameTime)
     {
         var viewport = game.GraphicsDevice.Viewport;
         int centerX = (viewport.Width / 2) - 150;
-        int startY = (viewport.Height / 2) - 120;
+        int startY = (viewport.Height / 2) - 180;
+        int spacing = 55;
 
-        res720pButton.Bounds = new Rectangle(centerX, startY, 300, 45);
-        res1080pButton.Bounds = new Rectangle(centerX, startY + 60, 300, 45);
-        toggleFullscreenButton.Bounds = new Rectangle(centerX, startY + 120, 300, 45);
-        backButton.Bounds = new Rectangle(centerX, startY + 190, 300, 45);
+        resButton.Bounds = new Rectangle(centerX, startY, 300, 45);
+        fpsButton.Bounds = new Rectangle(centerX, startY + spacing, 300, 45);
+        vsyncButton.Bounds = new Rectangle(centerX, startY + spacing * 2, 300, 45);
+        fullscreenButton.Bounds = new Rectangle(centerX, startY + spacing * 3, 300, 45);
+        applyButton.Bounds = new Rectangle(centerX, startY + spacing * 4 + 20, 300, 45);
+        backButton.Bounds = new Rectangle(centerX, startY + spacing * 5 + 20, 300, 45);
 
-        int currentWidth = SettingsManager.CurrentSettings.Width;
-
-        res720pButton.NormalColor = currentWidth == 1280 ? Color.DarkGreen : Color.Black;
-        res720pButton.HoverColor = currentWidth == 1280 ? Color.Green : Color.DarkGray;
-
-        res1080pButton.NormalColor = currentWidth == 1920 ? Color.DarkGreen : Color.Black;
-        res1080pButton.HoverColor = currentWidth == 1920 ? Color.Green : Color.DarkGray;
-
-        toggleFullscreenButton.NormalColor = _pendingFullscreen ? Color.DarkGreen : Color.Black;
-        toggleFullscreenButton.HoverColor = _pendingFullscreen ? Color.Green : Color.DarkGray;
-
-        // ARCHITECTURE FIX: Centralized peripheral delegation
         Point mousePos = InputManager.GetMousePosition();
-        bool isPressed = InputManager.IsUISelectPressed();
+        bool isClicked = InputManager.ConsumeUIClick();
 
-        res720pButton.Update(mousePos, isPressed);
-        res1080pButton.Update(mousePos, isPressed);
-        toggleFullscreenButton.Update(mousePos, isPressed);
-        backButton.Update(mousePos, isPressed);
+        resButton.Update(mousePos, isClicked);
+        fpsButton.Update(mousePos, isClicked);
+        vsyncButton.Update(mousePos, isClicked);
+        fullscreenButton.Update(mousePos, isClicked);
+        applyButton.Update(mousePos, isClicked);
+        backButton.Update(mousePos, isClicked);
+
+        UpdateLabels();
     }
 
-    public override void Draw(SpriteBatch spriteBatch)
+    public override void Draw(SpriteBatch spriteBatch, float alpha = 1f)
     {
         game.GraphicsDevice.Clear(Color.DimGray);
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);
 
-        res720pButton.Draw(spriteBatch);
-        res1080pButton.Draw(spriteBatch);
-        toggleFullscreenButton.Draw(spriteBatch);
+        resButton.Draw(spriteBatch);
+        fpsButton.Draw(spriteBatch);
+        vsyncButton.Draw(spriteBatch);
+        fullscreenButton.Draw(spriteBatch);
+        applyButton.Draw(spriteBatch);
         backButton.Draw(spriteBatch);
 
         spriteBatch.End();

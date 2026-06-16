@@ -6,9 +6,7 @@ using MyGame.Engine.States;
 using MyGame.Engine.Networking;
 using MyGame.Engine.Rendering;
 using MyGame.Engine.Core;
-using MyGame.Engine.Maps;
 using MyGame.Gameplay.Components;
-using MyGame.Gameplay.Prefabs;
 using MyGame.GameStates.UI;
 using MyGame.Gameplay.Systems;
 using Flecs.NET.Core;
@@ -22,79 +20,41 @@ public class GameplayState : GameState
 {
     private readonly Flecs.NET.Core.World ecsWorld;
     private readonly int selectedClassId;
+    private readonly string targetMapPath;
+
     private PauseMenuOverlay pauseMenu = null!;
     private Camera2D camera = null!;
+    private RenderTarget2D virtualRenderTarget = null!;
 
-    private LevelData loadedMapData = null!;
-
+    public const int VirtualWidth = 640;
+    public const int VirtualHeight = 360;
     private readonly bool isHostOrigin;
 
     public bool IsSimulationPaused => pauseMenu != null && pauseMenu.IsPaused;
 
-    public GameplayState(Game1 game, StateManager stateManager, Flecs.NET.Core.World sharedWorld, int chosenClassId)
+    public GameplayState(Game1 game, StateManager stateManager, Flecs.NET.Core.World sharedWorld, int chosenClassId, string mapPath)
         : base(game, stateManager)
     {
         ecsWorld = sharedWorld;
         selectedClassId = chosenClassId;
+        targetMapPath = mapPath;
         isHostOrigin = !SteamManager.KnownHostId.HasValue || SteamManager.KnownHostId.Value == SteamClient.SteamId;
     }
 
     public override void LoadContent()
     {
+        virtualRenderTarget = new RenderTarget2D(game.GraphicsDevice, VirtualWidth, VirtualHeight, false, SurfaceFormat.Color, DepthFormat.None);
         pauseMenu = new PauseMenuOverlay(game, stateManager, isHostOrigin);
-        camera = new Camera2D(game.GraphicsDevice);
 
-        // ARCHITECTURE FIX: Set initial camera parameters securely before loading assets
-        camera.Zoom = 2.5f;
-        camera.Position = new Vector2(400, 300);
+        camera = new Camera2D();
+        camera.Zoom = 1.0f;
 
-        loadedMapData = MapLoader.LoadLevel("Maps/GameWorld/Entrance.ldtkl");
-
-        Entity localAvatar = PlayerFactory.CreateLocal(ecsWorld, selectedClassId);
-
-        if (loadedMapData != null)
+        if (isHostOrigin && SteamManager.IsSteamActive && SteamManager.CurrentLobby.HasValue)
         {
-            localAvatar.Set(new Position { X = loadedMapData.SpawnPoint.X, Y = loadedMapData.SpawnPoint.Y });
-            if (localAvatar.Has<PhysicsBody>())
-            {
-                var body = localAvatar.Get<PhysicsBody>().Value;
-                if (body != null)
-                {
-                    body.Position = new nkast.Aether.Physics2D.Common.Vector2(
-                        loadedMapData.SpawnPoint.X / PlayerFactory.PixelsPerMeter,
-                        loadedMapData.SpawnPoint.Y / PlayerFactory.PixelsPerMeter
-                    );
-                }
-            }
+            SteamManager.CurrentLobby.Value.SetData("GameState", "InGame");
         }
 
-        if (SteamManager.IsSteamActive && SteamManager.CurrentLobby.HasValue)
-        {
-            if (isHostOrigin)
-            {
-                SteamManager.CurrentLobby.Value.SetData("GameState", "InGame");
-            }
-
-            var handshakePayload = new PlayerSpawnPacket
-            {
-                PacketType = PacketTypes.Spawn,
-                CharacterClassId = selectedClassId,
-                StartX = loadedMapData?.SpawnPoint.X ?? 400f,
-                StartY = loadedMapData?.SpawnPoint.Y ?? 300f,
-                EntityNetworkSequenceId = localAvatar.Get<NetworkId>().Value
-            };
-
-            int bufferSize = System.Runtime.InteropServices.Marshal.SizeOf<PlayerSpawnPacket>();
-            byte[] handshakeBuffer = new byte[bufferSize];
-            handshakePayload.SerializeTo(handshakeBuffer);
-
-            foreach (var peer in SteamManager.CurrentLobby.Value.Members)
-            {
-                if (peer.Id == SteamClient.SteamId) continue;
-                SteamNetworking.SendP2PPacket(peer.Id, handshakeBuffer, handshakeBuffer.Length, 1, P2PSend.Reliable);
-            }
-            Console.WriteLine("[Network Handshake]: Reliable introduction frame broadcast to session lobby.");
-        }
+        ecsWorld.Entity().Set(new MapLoadRequest { MapPath = targetMapPath, LocalClassId = selectedClassId });
     }
 
     public override void UnloadContent()
@@ -105,16 +65,14 @@ public class GameplayState : GameState
         using var cleanupQuery = ecsWorld.QueryBuilder().With<MatchEntityTag>().Build();
         cleanupQuery.Each((Entity e) => { garbageCollectionList.Add(e); });
 
-        foreach (var entity in garbageCollectionList)
-        {
-            if (entity.IsAlive()) entity.Destruct();
-        }
+        foreach (var entity in garbageCollectionList) if (entity.IsAlive()) entity.Destruct();
 
+        ecsWorld.Entity("GlobalMapData").Destruct();
+
+        virtualRenderTarget?.Dispose();
+        AssetManager.UnloadLevelAssets();
         game.PhysicsWorld.Clear();
-
         NetworkReceiverSystem.ClearShadows();
-        NetworkIdGenerator.ResetSequence();
-        Console.WriteLine("[Gameplay]: Active match simulation cleared safely via Native Deferred Teardown.");
     }
 
     public override void Update(GameTime gameTime)
@@ -123,7 +81,6 @@ public class GameplayState : GameState
         {
            if (!isHostOrigin)
            {
-               Console.WriteLine("[Network]: Lost connection to Host. Evacuating to Main Menu.");
                SteamManager.LeaveLobby();
                stateManager.ChangeState(new MainMenuState(game, stateManager));
                return;
@@ -131,73 +88,74 @@ public class GameplayState : GameState
         }
 
         pauseMenu.Update();
+        float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
         if (!IsSimulationPaused)
         {
-           float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+           ecsWorld.Query<Position, PreviousPosition>().Each((ref Position pos, ref PreviousPosition prevPos) => {
+               prevPos.X = pos.X; prevPos.Y = pos.Y;
+           });
 
            game.PhysicsWorld.Step(dt);
            ecsWorld.Progress(dt);
-
-           ecsWorld.Query<Position>().Each((Iter it, int row, ref Position pos) =>
-           {
-              Entity e = it.Entity(row);
-              if (e.Has<LocalPlayerTag>())
-              {
-                 camera.Position = Vector2.Lerp(camera.Position, new Vector2(pos.X, pos.Y), 5f * dt);
-              }
-           });
         }
     }
 
-    public override void Draw(SpriteBatch spriteBatch)
+    public override void Draw(SpriteBatch spriteBatch, float alpha = 1f)
     {
-        game.GraphicsDevice.Clear(XnaColor.FromNonPremultiplied(30, 30, 30, 255));
-
-        spriteBatch.Begin(
-            SpriteSortMode.Deferred,
-            BlendState.NonPremultiplied,
-            SamplerState.PointClamp,
-            null, null, null,
-            camera.GetViewMatrix()
-        );
-
-        var viewport = game.GraphicsDevice.Viewport;
-
-        // ARCHITECTURE FIX: Secure fallback math to prevent zero or negative camera scale division crashes
-        float currentZoom = camera.Zoom <= 0f ? 1f : camera.Zoom;
-
-        float viewLeft = camera.Position.X - (viewport.Width / 2f / currentZoom) - 64f;
-        float viewRight = camera.Position.X + (viewport.Width / 2f / currentZoom) + 64f;
-        float viewTop = camera.Position.Y - (viewport.Height / 2f / currentZoom) - 64f;
-        float viewBottom = camera.Position.Y + (viewport.Height / 2f / currentZoom) + 64f;
-
-        if (loadedMapData != null && loadedMapData.Tiles != null)
+        ecsWorld.Query<Position, PreviousPosition>().Each((Iter it, int row, ref Position pos, ref PreviousPosition prevPos) =>
         {
-            foreach (var tile in loadedMapData.Tiles)
+            Entity e = it.Entity(row);
+            if (e.Has<LocalPlayerTag>())
             {
-                // ARCHITECTURE FIX: Strict null texture boundary verification before drawing
-                if (tile.Texture != null && !tile.Texture.IsDisposed)
-                {
-                    if (tile.Position.X >= viewLeft && tile.Position.X <= viewRight &&
-                        tile.Position.Y >= viewTop && tile.Position.Y <= viewBottom)
-                    {
-                        spriteBatch.Draw(tile.Texture, tile.Position, tile.Source, XnaColor.White, 0f, Vector2.Zero, 1f, tile.Effects, 0f);
-                    }
-                }
+                camera.Position = new Vector2(
+                    MathHelper.Lerp(prevPos.X, pos.X, alpha),
+                    MathHelper.Lerp(prevPos.Y, pos.Y, alpha)
+                );
             }
+        });
+
+        Entity mapDataE = ecsWorld.Entity("GlobalMapData");
+        if (mapDataE.Has<MapInstance>())
+        {
+            var rData = mapDataE.Get<MapInstance>().Data;
+            camera.Limits = new Rectangle(0, 0, rData.Width, rData.Height);
         }
 
-        ecsWorld.Query<Position, CharacterClass>().Each((Iter it, int row, ref Position pos, ref CharacterClass cClass) =>
+        game.GraphicsDevice.SetRenderTarget(virtualRenderTarget);
+        game.GraphicsDevice.Clear(XnaColor.FromNonPremultiplied(40, 35, 50, 255));
+
+        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied, SamplerState.PointClamp, null, null, null, camera.GetViewMatrix(VirtualWidth, VirtualHeight));
+
+        TileRenderSystem.Draw(ecsWorld, camera, VirtualWidth, VirtualHeight);
+
+        ecsWorld.Query<Position, PreviousPosition, CharacterClass>().Each((Iter it, int row, ref Position pos, ref PreviousPosition prevPos, ref CharacterClass cClass) =>
         {
             Entity e = it.Entity(row);
             XnaColor renderColor = cClass.Id == 0 ? XnaColor.Orange : XnaColor.Cyan;
             if (e.Has<RemotePlayerTag>()) renderColor = XnaColor.LightSkyBlue;
 
-            Rectangle agentDestRect = new Rectangle((int)pos.X - 16, (int)pos.Y - 16, 32, 32);
-            spriteBatch.Draw(AssetManager.WhitePixel, agentDestRect, renderColor);
+            float renderX = MathHelper.Lerp(prevPos.X, pos.X, alpha);
+            float renderY = MathHelper.Lerp(prevPos.Y, pos.Y, alpha);
+
+            spriteBatch.Draw(AssetManager.WhitePixel, new Rectangle((int)renderX - 5, (int)renderY - 12, 10, 24), renderColor);
         });
 
+        spriteBatch.End();
+
+        game.GraphicsDevice.SetRenderTarget(null);
+        game.GraphicsDevice.Clear(Color.Black);
+
+        float scaleX = (float)game.GraphicsDevice.PresentationParameters.BackBufferWidth / VirtualWidth;
+        float scaleY = (float)game.GraphicsDevice.PresentationParameters.BackBufferHeight / VirtualHeight;
+        float scale = Math.Min(scaleX, scaleY);
+
+        int newW = (int)(VirtualWidth * scale);
+        int newH = (int)(VirtualHeight * scale);
+        var destRect = new Rectangle((game.GraphicsDevice.PresentationParameters.BackBufferWidth - newW) / 2, (game.GraphicsDevice.PresentationParameters.BackBufferHeight - newH) / 2, newW, newH);
+
+        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);
+        spriteBatch.Draw(virtualRenderTarget, destRect, Color.White);
         spriteBatch.End();
 
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);

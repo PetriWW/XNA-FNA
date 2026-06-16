@@ -20,8 +20,11 @@ public class LdtkLevel
     [JsonPropertyName("pxHei")]
     public int PxHeight { get; set; }
 
+    [JsonPropertyName("externalRelPath")]
+    public string? ExternalRelPath { get; set; }
+
     [JsonPropertyName("layerInstances")]
-    public LdtkLayerInstance[] LayerInstances { get; set; } = null!;
+    public LdtkLayerInstance[] LayerInstances { get; set; } = Array.Empty<LdtkLayerInstance>();
 }
 
 public class LdtkLayerInstance
@@ -38,7 +41,6 @@ public class LdtkLayerInstance
     [JsonPropertyName("__cWid")]
     public int CellsWidth { get; set; }
 
-    // ARCHITECTURE ADDITION: Fetches the texture file location required to draw the map
     [JsonPropertyName("__tilesetRelPath")]
     public string? TilesetRelPath { get; set; }
 
@@ -48,7 +50,6 @@ public class LdtkLayerInstance
     [JsonPropertyName("entityInstances")]
     public LdtkEntityInstance[] EntityInstances { get; set; } = Array.Empty<LdtkEntityInstance>();
 
-    // ARCHITECTURE ADDITION: Captures LDtk visual tile coordinates
     [JsonPropertyName("autoLayerTiles")]
     public LdtkTileInstance[] AutoLayerTiles { get; set; } = Array.Empty<LdtkTileInstance>();
 

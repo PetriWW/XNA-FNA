@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using MyGame.Engine.Input;
 
 namespace MyGame.Engine.States;
 
@@ -10,7 +11,6 @@ public class StateManager
     private readonly List<GameState> stateStack = new();
     private readonly List<Action> pendingOperations = new();
 
-    // ARCHITECTURE FIX: Prevents visual "flash" by blocking updates/draws during transitions
     public bool IsTransitioning { get; private set; } = false;
 
     public static StateManager Instance { get; private set; } = null!;
@@ -26,6 +26,7 @@ public class StateManager
        {
           stateStack.Add(state);
           state.LoadContent();
+          InputManager.Clear();
        });
     }
 
@@ -37,13 +38,13 @@ public class StateManager
           {
              stateStack[^1].UnloadContent();
              stateStack.RemoveAt(stateStack.Count - 1);
+             InputManager.Clear();
           }
        });
     }
 
     public void ChangeState(GameState state)
     {
-       // ARCHITECTURE FIX: Block incoming input/update logic during transition
        IsTransitioning = true;
        pendingOperations.Clear();
 
@@ -58,12 +59,11 @@ public class StateManager
           stateStack.Add(state);
           state.LoadContent();
 
-          // Re-enable rendering
+          InputManager.Clear();
           IsTransitioning = false;
        });
     }
 
-    // ARCHITECTURE FIX: Accept a direct delta time step float to separate loop ticking from engine internals
     public void Update(float deltaTime)
     {
        foreach (var op in pendingOperations) op();
@@ -71,17 +71,16 @@ public class StateManager
 
        if (IsTransitioning || stateStack.Count == 0) return;
 
-       // Securely reconstruct an isolated read-only wrapper context to push downstream to existing systems safely
        var stateGameTime = new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(deltaTime));
        stateStack[^1].Update(stateGameTime);
     }
 
-    public void Draw(SpriteBatch spriteBatch)
+    public void Draw(SpriteBatch spriteBatch, float alpha)
     {
        if (IsTransitioning || stateStack.Count == 0) return;
        foreach (var state in stateStack)
        {
-          state.Draw(spriteBatch);
+          state.Draw(spriteBatch, alpha);
        }
     }
 }

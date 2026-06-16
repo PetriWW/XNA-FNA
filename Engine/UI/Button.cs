@@ -11,7 +11,6 @@ namespace MyGame.Engine.UI;
 public class Button
 {
     private readonly Texture2D texture;
-    private bool wasLeftButtonPressed;
 
     public event Action? OnClick;
 
@@ -32,19 +31,16 @@ public class Button
         this.Bounds = bounds;
     }
 
-    // ARCHITECTURE FIX: Inversion of Control. The containing state feeds button metrics safely.
-    public void Update(Point mousePosition, bool isLeftButtonPressed)
+    public void Update(Point mousePosition, bool isClicked)
     {
         if (!IsEnabled) return;
 
         IsHovered = Bounds.Contains(mousePosition);
 
-        if (IsHovered && !isLeftButtonPressed && wasLeftButtonPressed)
+        if (IsHovered && isClicked)
         {
             OnClick?.Invoke();
         }
-
-        wasLeftButtonPressed = isLeftButtonPressed;
     }
 
     public void Draw(SpriteBatch spriteBatch)
