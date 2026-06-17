@@ -2,6 +2,7 @@
 using Flecs.NET.Core;
 using MyGame.Engine.Networking;
 using MyGame.Gameplay.Components;
+using MyGame.Engine.Core;
 
 namespace MyGame.Gameplay.Systems;
 
@@ -12,14 +13,14 @@ public static class NetworkCleanupSystem
 		world.System<NetworkOwner, NetworkId>("NetworkDisconnectSweepSystem")
 			.With<RemotePlayerTag>()
 			.Kind(Ecs.PreUpdate)
-			.Interval(1.0f)
+			.Interval(1.0f) // Runs once per second, very lightweight
 			.Each((Iter it, int row, ref NetworkOwner owner, ref NetworkId netId) =>
 			{
 				Entity e = it.Entity(row);
 
 				if (!SteamManager.CurrentLobby.HasValue)
 				{
-					NetworkReceiverSystem.RemoveShadow(netId.Value);
+					// NetworkRegistry automatically unregisters this via its OnRemove observer
 					e.Destruct();
 					return;
 				}
@@ -36,9 +37,8 @@ public static class NetworkCleanupSystem
 
 				if (!isStillInLobby)
 				{
-					Console.WriteLine($"[Network Sync]: Player {owner.Value} left the lobby. Purging native proxy.");
-
-					NetworkReceiverSystem.RemoveShadow(netId.Value);
+					EngineLogger.Log($"Player {owner.Value} left the lobby. Purging native proxy.", "NETWORK");
+					// NetworkRegistry automatically unregisters this via its OnRemove observer
 					e.Destruct();
 				}
 			});

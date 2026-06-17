@@ -2,6 +2,7 @@
 using Steamworks;
 using MyGame.Engine.Networking;
 using MyGame.Gameplay.Components;
+using MyGame.Gameplay.Systems; // Added for NetworkRegistry
 using nkast.Aether.Physics2D.Dynamics;
 
 using AetherVector2 = nkast.Aether.Physics2D.Common.Vector2;
@@ -33,15 +34,16 @@ public static class PlayerFactory
 
         aetherBody.FixedRotation = true;
         aetherBody.LinearDamping = 0f;
+        aetherBody.Tag = uniqueId;
 
         if (aetherBody.FixtureList.Count > 0)
         {
             aetherBody.FixtureList[0].Friction = 0f;
             aetherBody.FixtureList[0].CollisionCategories = PhysicsLayers.LocalPlayer;
-            aetherBody.FixtureList[0].CollidesWith = PhysicsLayers.Environment | PhysicsLayers.EnemyAndProjectiles;
+            aetherBody.FixtureList[0].CollidesWith = PhysicsLayers.Environment | PhysicsLayers.EnemyAndProjectiles | PhysicsLayers.RemotePlayer;
         }
 
-        return world.Entity(entityLookupName)
+        Entity e = world.Entity(entityLookupName)
             .Add<LocalPlayerTag>()
             .Add<MatchEntityTag>()
             .Set(new LocalInput { AxisX = 0, AxisY = 0, JumpJustPressed = false })
@@ -53,7 +55,12 @@ public static class PlayerFactory
             .Set(new CharacterClass { Id = classId })
             .Set(new NetworkOwner { Value = SteamClient.SteamId })
             .Set(new NetworkId { Value = uniqueId })
+            .Set(new FacingDirection { Value = 1 })
+            .Set(new Health { Current = 100, Max = 100 })
             .Set(new PhysicsBody { Value = aetherBody });
+
+        NetworkRegistry.Add(uniqueId, e);
+        return e;
     }
 
     public static Entity CreateRemote(Flecs.NET.Core.World world, string entityKey, PlayerTransformPacket packet, SteamId senderId)
@@ -64,15 +71,16 @@ public static class PlayerFactory
 
         var aetherBody = Game1.Instance.PhysicsWorld.CreateCapsule(innerHeight, radius, 1f, startPos, 0f, BodyType.Kinematic);
         aetherBody.FixedRotation = true;
+        aetherBody.Tag = packet.EntityNetworkSequenceId;
 
         if (aetherBody.FixtureList.Count > 0)
         {
             aetherBody.FixtureList[0].Friction = 0f;
             aetherBody.FixtureList[0].CollisionCategories = PhysicsLayers.RemotePlayer;
-            aetherBody.FixtureList[0].CollidesWith = PhysicsLayers.Environment;
+            aetherBody.FixtureList[0].CollidesWith = PhysicsLayers.Environment | PhysicsLayers.EnemyAndProjectiles | PhysicsLayers.LocalPlayer;
         }
 
-        return world.Entity(entityKey)
+        Entity e = world.Entity(entityKey)
             .Add<RemotePlayerTag>()
             .Add<MatchEntityTag>()
             .Set(new Position { X = packet.X, Y = packet.Y })
@@ -83,6 +91,11 @@ public static class PlayerFactory
             .Set(new NetworkOwner { Value = senderId })
             .Set(new NetworkId { Value = packet.EntityNetworkSequenceId })
             .Set(new NetworkSequence { LatestSequence = packet.SequenceNumber, TimeSinceLastPacket = 0f })
+            .Set(new FacingDirection { Value = packet.FacingDirection })
+            .Set(new Health { Current = 100, Max = 100 })
             .Set(new PhysicsBody { Value = aetherBody });
+
+        NetworkRegistry.Add(packet.EntityNetworkSequenceId, e);
+        return e;
     }
 }

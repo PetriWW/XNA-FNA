@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Steamworks;
 using Steamworks.Data;
@@ -74,6 +75,26 @@ public static class SteamManager
         }
     }
 
+    // ARCHITECTURE FIX: Fetch native Steam Friends list
+    public static IEnumerable<Friend> GetFriends()
+    {
+        if (!IsSteamActive) yield break;
+        foreach (var friend in SteamFriends.GetFriends())
+        {
+            yield return friend;
+        }
+    }
+
+    // ARCHITECTURE FIX: Send native background invite
+    public static void InviteFriendToLobby(SteamId friendId)
+    {
+        if (IsSteamActive && CurrentLobby.HasValue)
+        {
+            CurrentLobby.Value.InviteFriend(friendId);
+            EngineLogger.Log($"Native invite sent to SteamId: {friendId}", "NETWORK");
+        }
+    }
+
     public static void OpenInviteOverlay()
     {
         if (IsSteamActive && CurrentLobby.HasValue)
@@ -128,6 +149,8 @@ public static class SteamManager
     {
         if (!IsSteamActive) return;
         SteamClient.RunCallbacks();
+
+        SteamAvatarCache.Update();
 
         if (CurrentLobby.HasValue && KnownHostId.HasValue)
         {

@@ -3,7 +3,6 @@ using Flecs.NET.Core;
 using MyGame.Engine.Input;
 using MyGame.Gameplay.Components;
 using MyGame.Gameplay.Prefabs;
-
 using AetherVector2 = nkast.Aether.Physics2D.Common.Vector2;
 
 namespace MyGame.Gameplay.Systems;
@@ -26,10 +25,10 @@ public static class LocalPlayerSystems
                 }
             });
 
-        world.System<LocalInput>("InputGatheringSystem")
+        world.System<LocalInput, FacingDirection>("InputGatheringSystem")
             .Kind(Ecs.PreUpdate)
             .With<LocalPlayerTag>()
-            .Each((ref LocalInput input) =>
+            .Each((ref LocalInput input, ref FacingDirection facing) =>
             {
                 if (!Game1.Instance.IsActive) return;
 
@@ -38,6 +37,9 @@ public static class LocalPlayerSystems
                 if (InputManager.IsActionActive(GameActions.MoveRight)) dx += 1;
 
                 input.AxisX = dx;
+
+                // Track visual orientation independently of velocity
+                if (dx != 0) facing.Value = dx > 0 ? 1 : -1;
 
                 if (InputManager.ConsumeAction(GameActions.Jump))
                 {
@@ -56,11 +58,15 @@ public static class LocalPlayerSystems
                 var ce = pBody.Value.ContactList;
                 while (ce != null)
                 {
-                    if (ce.Contact.IsTouching) hasFloorContact = true;
+                    // ARCHITECTURE FIX: Validates verticality. Prevents "wall-jumping" by rubbing flat vertical walls.
+                    if (ce.Contact.IsTouching && Math.Abs(pBody.Value.LinearVelocity.Y) <= 0.1f)
+                    {
+                        hasFloorContact = true;
+                    }
                     ce = ce.Next;
                 }
 
-                if (hasFloorContact && pBody.Value.LinearVelocity.Y >= -0.1f)
+                if (hasFloorContact)
                 {
                     ground.IsGrounded = true;
                     ground.CoyoteTimer = CoyoteTimeMax;

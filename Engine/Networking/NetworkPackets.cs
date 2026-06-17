@@ -7,14 +7,22 @@ public static class PacketTypes
 	// Packet Routing Headers
 	public const byte Transform = 1;
 	public const byte Spawn = 2;
-	public const byte CombatEvent = 5;
+	public const byte DistributedEvent = 5; // Upgraded from CombatEvent
 	public const byte ProjectileSpawn = 6;
 
-	// Raw Signals (No payload attached)
+	// Raw Signals
 	public const byte LobbyStart = 10;
 	public const byte PauseGame = 11;
 	public const byte ResumeGame = 12;
 	public const byte PlayerReady = 13;
+}
+
+public static class GameEventType
+{
+	public const byte Damage = 1;
+	public const byte Heal = 2;
+	public const byte InteractSwitch = 3;
+	public const byte PickupItem = 4;
 }
 
 [MemoryPackable]
@@ -26,6 +34,7 @@ public partial struct PlayerTransformPacket
 	public float Y;
 	public float Vx;
 	public float Vy;
+	public int FacingDirection;
 	public ulong EntityNetworkSequenceId;
 }
 
@@ -38,13 +47,15 @@ public partial struct PlayerSpawnPacket
 	public ulong EntityNetworkSequenceId;
 }
 
+// ARCHITECTURE FIX: Generic Distributed Event for RPG Mechanics
 [MemoryPackable]
-public partial struct CombatEventPacket
+public partial struct DistributedEventPacket
 {
-	public ulong AttackerNetworkId;
-	public ulong VictimNetworkId;
-	public int DamageAmount;
-	public byte DamageType;
+	public ulong InstigatorNetworkId;
+	public ulong TargetNetworkId;
+	public byte EventType;
+	public int IntPayload;   // E.g., Damage amount, or Door ID
+	public float FloatPayload; // E.g., specific status effect duration
 }
 
 [MemoryPackable]

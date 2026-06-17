@@ -10,16 +10,16 @@ namespace MyGame.Gameplay.Systems;
 public static class TileRenderSystem
 {
 	private static SpriteBatch _spriteBatch = null!;
+	private static Query<MapInstance> _mapQuery;
 
-	public static void Initialize(SpriteBatch batch) => _spriteBatch = batch;
+	public static void Initialize(World world, SpriteBatch batch)
+	{
+		_spriteBatch = batch;
+		_mapQuery = world.QueryBuilder<MapInstance>().Build();
+	}
 
 	public static void Draw(World world, Camera2D camera, int virtualWidth, int virtualHeight)
 	{
-		Entity mapEntity = world.Entity("GlobalMapData");
-		if (!mapEntity.Has<MapInstance>()) return;
-
-		var roomData = mapEntity.Get<MapInstance>().Data;
-
 		Vector2 clampedCamPos = camera.GetClampedPosition(virtualWidth, virtualHeight);
 		float zoom = camera.Zoom <= 0f ? 1f : camera.Zoom;
 
@@ -28,18 +28,22 @@ public static class TileRenderSystem
 		float viewTop = clampedCamPos.Y - (virtualHeight / 2f / zoom) - 64f;
 		float viewBottom = clampedCamPos.Y + (virtualHeight / 2f / zoom) + 64f;
 
-		for (int i = 0; i < roomData.Tiles.Length; i++)
+		_mapQuery.Each((ref MapInstance mapInstance) =>
 		{
-			var tile = roomData.Tiles[i];
-
-			if (tile.Texture != null && !tile.Texture.IsDisposed)
+			var roomData = mapInstance.Data;
+			for (int i = 0; i < roomData.Tiles.Length; i++)
 			{
-				if (tile.Position.X >= viewLeft && tile.Position.X <= viewRight &&
-				    tile.Position.Y >= viewTop && tile.Position.Y <= viewBottom)
+				var tile = roomData.Tiles[i];
+
+				if (tile.Texture != null && !tile.Texture.IsDisposed)
 				{
-					_spriteBatch.Draw(tile.Texture, tile.Position, tile.Source, XnaColor.White, 0f, Vector2.Zero, 1f, tile.Effects, 0f);
+					if (tile.Position.X >= viewLeft && tile.Position.X <= viewRight &&
+					    tile.Position.Y >= viewTop && tile.Position.Y <= viewBottom)
+					{
+						_spriteBatch.Draw(tile.Texture, tile.Position, tile.Source, XnaColor.White, 0f, Vector2.Zero, 1f, tile.Effects, 0f);
+					}
 				}
 			}
-		}
+		});
 	}
 }

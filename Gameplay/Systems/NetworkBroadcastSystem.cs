@@ -14,14 +14,14 @@ public static class NetworkBroadcastSystem
     private const float NetworkDeadzoneEpsilon = 0.05f;
 
     private static readonly ArrayBufferWriter<byte> _bufferWriter = new ArrayBufferWriter<byte>(256);
-
-    private static readonly byte[] _reusableBuffer = new byte[256];
+    private static byte[] _reusableBuffer = new byte[256];
 
     public static void Register(Flecs.NET.Core.World world)
     {
-        world.System<Position, Velocity, PreviousVelocity, NetworkId, NetworkOwner>("NetworkBroadcastSystem")
+        // ARCHITECTURE FIX: Included FacingDirection explicitly in the query
+        world.System<Position, Velocity, PreviousVelocity, NetworkId, NetworkOwner, FacingDirection>("NetworkBroadcastSystem")
             .Kind(Ecs.PostUpdate)
-            .Each((Iter it, int i, ref Position pos, ref Velocity vel, ref PreviousVelocity prevVel, ref NetworkId netId, ref NetworkOwner owner) =>
+            .Each((Iter it, int i, ref Position pos, ref Velocity vel, ref PreviousVelocity prevVel, ref NetworkId netId, ref NetworkOwner owner, ref FacingDirection facing) =>
             {
                 if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue) return;
 
@@ -41,6 +41,7 @@ public static class NetworkBroadcastSystem
                     Y = pos.Y,
                     Vx = vel.X,
                     Vy = vel.Y,
+                    FacingDirection = facing.Value,
                     EntityNetworkSequenceId = netId.Value
                 };
 
@@ -52,8 +53,14 @@ public static class NetworkBroadcastSystem
 
                 MemoryPackSerializer.Serialize(_bufferWriter, packet);
 
-                // Zero-Allocation Memory Copy
                 int packetLength = _bufferWriter.WrittenCount;
+
+                // Self-healing resize to prevent payload overflows
+                if (_reusableBuffer.Length < packetLength)
+                {
+                    Array.Resize(ref _reusableBuffer, packetLength * 2);
+                }
+
                 _bufferWriter.WrittenSpan.CopyTo(_reusableBuffer);
 
                 foreach (var member in SteamManager.CurrentLobby.Value.Members)

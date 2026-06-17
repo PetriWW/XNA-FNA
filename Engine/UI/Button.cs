@@ -3,7 +3,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.Core;
 using FontStashSharp;
-
 using NumericsVector2 = System.Numerics.Vector2;
 
 namespace MyGame.Engine.UI;
@@ -15,6 +14,9 @@ public class Button
     public event Action? OnClick;
 
     public string Text { get; set; } = string.Empty;
+    public Texture2D? Icon { get; set; }
+    public bool HasIconSlot { get; set; } = false; // ARCHITECTURE FIX: Explicitly controls placeholders
+
     public float FontSize { get; set; } = 20f;
     public Rectangle Bounds { get; set; }
 
@@ -37,10 +39,7 @@ public class Button
 
         IsHovered = Bounds.Contains(mousePosition);
 
-        if (IsHovered && isClicked)
-        {
-            OnClick?.Invoke();
-        }
+        if (IsHovered && isClicked) OnClick?.Invoke();
     }
 
     public void Draw(SpriteBatch spriteBatch)
@@ -48,20 +47,35 @@ public class Button
         Color btnTint = !IsEnabled ? Color.DimGray : (IsHovered ? HoverColor : NormalColor);
         spriteBatch.Draw(texture, Bounds, btnTint);
 
+        float iconOffset = 0;
+
+        int padding = 4;
+        int iconSize = Bounds.Height - (padding * 2);
+        Rectangle iconRect = new Rectangle(Bounds.X + padding, Bounds.Y + padding, iconSize, iconSize);
+
+        if (Icon != null && !Icon.IsDisposed)
+        {
+            spriteBatch.Draw(Icon, iconRect, Color.White);
+            iconOffset = iconSize + (padding * 2);
+        }
+        else if (HasIconSlot)
+        {
+            spriteBatch.Draw(AssetManager.WhitePixel, iconRect, Color.Black * 0.4f);
+            iconOffset = iconSize + (padding * 2);
+        }
+
         if (!string.IsNullOrEmpty(Text) && AssetManager.IsFontLoaded)
         {
            SpriteFontBase font = AssetManager.GetFont(FontSize);
            NumericsVector2 textSize = font.MeasureString(Text);
 
            System.Numerics.Vector2 textPos = new System.Numerics.Vector2(
-              Bounds.X + (Bounds.Width - textSize.X) * 0.5f,
+              Bounds.X + iconOffset + (Bounds.Width - iconOffset - textSize.X) * 0.5f,
               Bounds.Y + (Bounds.Height - textSize.Y) * 0.5f
            );
 
            Color finalTextColor = !IsEnabled ? Color.Gray : TextColor;
-           FSColor fsColor = new FSColor(finalTextColor.R, finalTextColor.G, finalTextColor.B, (byte)255);
-
-           font.DrawText(AssetManager.FontRenderer, Text, textPos, fsColor);
+           font.DrawText(AssetManager.FontRenderer, Text, textPos, new FSColor(finalTextColor.R, finalTextColor.G, finalTextColor.B, (byte)255));
         }
     }
 }

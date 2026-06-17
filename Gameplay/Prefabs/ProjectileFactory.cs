@@ -19,12 +19,14 @@ public static class ProjectileFactory
 		var aetherBody = Game1.Instance.PhysicsWorld.CreateCircle(physRadius, 1f, new AetherVector2(physX, physY), BodyType.Dynamic);
 		aetherBody.IgnoreGravity = true;
 		aetherBody.LinearVelocity = new AetherVector2(velX / PlayerFactory.PixelsPerMeter, velY / PlayerFactory.PixelsPerMeter);
+		aetherBody.IsBullet = true;
+		aetherBody.Tag = netId;
 
 		foreach (var fixture in aetherBody.FixtureList)
 		{
 			fixture.IsSensor = true;
 			fixture.CollisionCategories = PhysicsLayers.EnemyAndProjectiles;
-			fixture.CollidesWith = PhysicsLayers.Environment;
+			fixture.CollidesWith = PhysicsLayers.Environment | PhysicsLayers.RemotePlayer | PhysicsLayers.LocalPlayer;
 		}
 
 		return world.Entity(entityKey)

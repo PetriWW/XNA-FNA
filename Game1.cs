@@ -72,18 +72,27 @@ public class Game1 : Game
         DebugUI = new DebugUIManager();
         DebugUI.Initialize(this);
 
+        // Core Systems
+        TransformSystems.Register(EcsWorld);
         LocalPlayerSystems.Register(EcsWorld);
-
         RemotePlayerSystems.Register(EcsWorld);
 
+        // Networking Systems
         NetworkReceiverSystem.Register(EcsWorld);
         NetworkBroadcastSystem.Register(EcsWorld);
         NetworkCleanupSystem.Register(EcsWorld);
 
+        // Combat & Event Systems
         ProjectileSystem.Register(EcsWorld);
+        LocalHitDetectionSystem.Register(EcsWorld);
+        DistributedEventSystem.Register(EcsWorld); // Fixed Duplicate Registration
 
+        // Render & Map Systems
         MapSpawningSystem.Register(EcsWorld);
-        TileRenderSystem.Initialize(spriteBatch);
+
+        TileRenderSystem.Initialize(EcsWorld, spriteBatch);
+        PlayerRenderSystem.Initialize(EcsWorld);
+        ProjectileRenderSystem.Initialize(EcsWorld);
 
         stateManager.ChangeState(new MainMenuState(this, stateManager));
     }
@@ -124,6 +133,10 @@ public class Game1 : Game
         if (disposing)
         {
             spriteBatch?.Dispose();
+
+            // ARCHITECTURE FIX: Ensure unmanaged texture memory downloaded by Steam is cleared
+            SteamAvatarCache.Clear();
+
             SteamManager.Shutdown();
             EcsWorld.Dispose();
             LocalDatabase.Dispose();

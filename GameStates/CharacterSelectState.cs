@@ -1,5 +1,4 @@
-﻿using System;
-using Microsoft.Xna.Framework;
+﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
 using MyGame.Engine.UI;
@@ -7,6 +6,7 @@ using MyGame.Engine.Core;
 using MyGame.Engine.Networking;
 using MyGame.Engine.Input;
 using Steamworks;
+using MyGame.GameStates.UI;
 
 namespace MyGame.GameStates;
 
@@ -14,7 +14,10 @@ public class CharacterSelectState : GameState
 {
     private Button startRunButton = null!;
     private Button multiplayerButton = null!;
+    private Button closeLobbyButton = null!;
     private Button backButton = null!;
+
+    private FriendsListOverlay friendsOverlay = null!;
 
     private const int DefaultClassId = 0;
     private bool isJoineeReady = false;
@@ -27,9 +30,11 @@ public class CharacterSelectState : GameState
     public override void LoadContent()
     {
         Texture2D uiTex = AssetManager.WhitePixel;
+        friendsOverlay = new FriendsListOverlay(game);
 
         startRunButton = new Button(uiTex, Rectangle.Empty);
         multiplayerButton = new Button(uiTex, Rectangle.Empty);
+        closeLobbyButton = new Button(uiTex, Rectangle.Empty) { Text = "Close Lobby", NormalColor = Color.Firebrick, HoverColor = Color.IndianRed };
         backButton = new Button(uiTex, Rectangle.Empty) { Text = "Back to Menu", NormalColor = Color.DarkRed, HoverColor = Color.Red };
 
         NetworkRouter.OnLobbyMatchStart += HandleLobbyMatchStart;
@@ -37,15 +42,16 @@ public class CharacterSelectState : GameState
 
         startRunButton.OnClick += () =>
         {
-            bool inLobby = SteamManager.CurrentLobby.HasValue;
-            bool isHost = !inLobby || (SteamManager.CurrentLobby?.Owner.Id == SteamClient.SteamId);
+            var lobby = SteamManager.CurrentLobby;
+            bool inLobby = lobby.HasValue;
+            bool isHost = !inLobby || (lobby.HasValue && lobby.Value.Owner.Id == SteamClient.SteamId);
 
             if (isHost)
             {
-                if (inLobby && SteamManager.CurrentLobby.HasValue)
+                if (inLobby)
                 {
                     byte[] signalBuffer = new byte[] { PacketTypes.LobbyStart };
-                    foreach (var member in SteamManager.CurrentLobby.Value.Members)
+                    foreach (var member in lobby.Value.Members)
                     {
                         if (member.Id != SteamClient.SteamId)
                             SteamNetworking.SendP2PPacket(member.Id, signalBuffer, signalBuffer.Length, 2, P2PSend.Reliable);
@@ -55,7 +61,7 @@ public class CharacterSelectState : GameState
             }
             else
             {
-                bool isMatchInProgress = SteamManager.CurrentLobby?.GetData("GameState") == "InGame";
+                bool isMatchInProgress = inLobby && lobby.Value.GetData("GameState") == "InGame";
                 if (isMatchInProgress)
                 {
                     stateManager.ChangeState(new GameplayState(game, stateManager, game.EcsWorld, DefaultClassId, TargetMapPath));
@@ -76,10 +82,21 @@ public class CharacterSelectState : GameState
                 multiplayerButton.IsEnabled = false;
                 multiplayerButton.Text = "Creating Lobby...";
                 await SteamManager.CreateLobby();
+                // ARCHITECTURE FIX: Creating a lobby is now completely silent.
             }
             else
             {
-                SteamManager.OpenInviteOverlay();
+                // Only opens when the button actually says "Invite Friends"
+                friendsOverlay.Show();
+            }
+        };
+
+        closeLobbyButton.OnClick += () =>
+        {
+            if (SteamManager.CurrentLobby.HasValue)
+            {
+                SteamManager.LeaveLobby();
+                isJoineeReady = false;
             }
         };
 
@@ -101,22 +118,49 @@ public class CharacterSelectState : GameState
 
     public override void Update(GameTime gameTime)
     {
+        friendsOverlay.Update();
+        if (friendsOverlay.IsVisible) return;
+
         var viewport = game.GraphicsDevice.Viewport;
-        int centerX = (viewport.Width / 2) - 100;
-        int startY = (viewport.Height / 2) - 80;
+        int centerX = (viewport.Width / 2) - 125;
+        int startY = (viewport.Height / 2) - 100;
 
-        startRunButton.Bounds = new Rectangle(centerX, startY, 200, 50);
-        multiplayerButton.Bounds = new Rectangle(centerX, startY + 70, 200, 50);
-        backButton.Bounds = new Rectangle(centerX, startY + 140, 200, 50);
+        var lobby = SteamManager.CurrentLobby;
+        bool inLobby = lobby.HasValue;
+        bool isHost = !inLobby || (lobby.HasValue && lobby.Value.Owner.Id == SteamClient.SteamId);
+        bool isMatchInProgress = inLobby && (lobby.Value.GetData("GameState") == "InGame");
 
-        bool inLobby = SteamManager.CurrentLobby.HasValue;
-        bool isHost = !inLobby || (SteamManager.CurrentLobby?.Owner.Id == SteamClient.SteamId);
-        bool isMatchInProgress = inLobby && (SteamManager.CurrentLobby?.GetData("GameState") == "InGame");
-        int currentMembers = inLobby ? (SteamManager.CurrentLobby?.MemberCount ?? 1) : 1;
+        // ARCHITECTURE FIX: Safe nullable extraction prevents CS8629 warnings
+        int currentMembers = inLobby ? lobby.Value.MemberCount : 1;
 
         if (currentMembers < previousMemberCount) isJoineeReady = false;
         previousMemberCount = currentMembers;
 
+        ConfigureUIStates(inLobby, isHost, currentMembers, isMatchInProgress);
+
+        int buttonOffset = 0;
+        startRunButton.Bounds = new Rectangle(centerX, startY + buttonOffset, 250, 45); buttonOffset += 60;
+        multiplayerButton.Bounds = new Rectangle(centerX, startY + buttonOffset, 250, 45); buttonOffset += 60;
+
+        if (inLobby)
+        {
+            closeLobbyButton.Bounds = new Rectangle(centerX, startY + buttonOffset, 250, 45);
+            buttonOffset += 60;
+        }
+
+        backButton.Bounds = new Rectangle(centerX, startY + buttonOffset, 250, 45);
+
+        Point mousePos = InputManager.GetMousePosition();
+        bool isClicked = InputManager.ConsumeUIClick();
+
+        startRunButton.Update(mousePos, isClicked);
+        multiplayerButton.Update(mousePos, isClicked);
+        if (inLobby) closeLobbyButton.Update(mousePos, isClicked);
+        backButton.Update(mousePos, isClicked);
+    }
+
+    private void ConfigureUIStates(bool inLobby, bool isHost, int currentMembers, bool isMatchInProgress)
+    {
         if (!inLobby)
         {
             if (multiplayerButton.Text != "Creating Lobby...")
@@ -138,6 +182,7 @@ public class CharacterSelectState : GameState
             multiplayerButton.NormalColor = Color.DarkGreen;
             multiplayerButton.HoverColor = Color.Green;
             multiplayerButton.IsEnabled = true;
+            closeLobbyButton.Text = "Close Lobby";
 
             if (currentMembers == 1)
             {
@@ -146,19 +191,12 @@ public class CharacterSelectState : GameState
                 startRunButton.HoverColor = Color.Green;
                 startRunButton.IsEnabled = true;
             }
-            else if (!isJoineeReady)
-            {
-                startRunButton.Text = "Waiting for Joinee...";
-                startRunButton.NormalColor = Color.DarkSlateGray;
-                startRunButton.HoverColor = Color.DarkSlateGray;
-                startRunButton.IsEnabled = false;
-            }
             else
             {
-                startRunButton.Text = "Start Match";
-                startRunButton.NormalColor = Color.DarkGreen;
-                startRunButton.HoverColor = Color.Green;
-                startRunButton.IsEnabled = true;
+                startRunButton.Text = isJoineeReady ? "Start Match" : "Waiting for Joinee...";
+                startRunButton.NormalColor = isJoineeReady ? Color.DarkGreen : Color.DarkSlateGray;
+                startRunButton.HoverColor = isJoineeReady ? Color.Green : Color.DarkSlateGray;
+                startRunButton.IsEnabled = isJoineeReady;
             }
         }
         else
@@ -167,6 +205,7 @@ public class CharacterSelectState : GameState
             multiplayerButton.NormalColor = Color.DarkSlateGray;
             multiplayerButton.HoverColor = Color.DarkSlateGray;
             multiplayerButton.IsEnabled = false;
+            closeLobbyButton.Text = "Leave Lobby";
 
             if (isMatchInProgress)
             {
@@ -175,29 +214,14 @@ public class CharacterSelectState : GameState
                 startRunButton.HoverColor = Color.Goldenrod;
                 startRunButton.IsEnabled = true;
             }
-            else if (!isJoineeReady)
-            {
-                startRunButton.Text = "Ready Up";
-                startRunButton.NormalColor = Color.DarkSlateBlue;
-                startRunButton.HoverColor = Color.SlateBlue;
-                startRunButton.IsEnabled = true;
-            }
             else
             {
-                startRunButton.Text = "Waiting for Host...";
-                startRunButton.NormalColor = Color.DarkSlateGray;
-                startRunButton.HoverColor = Color.DarkSlateGray;
-                startRunButton.IsEnabled = false;
+                startRunButton.Text = isJoineeReady ? "Waiting for Host..." : "Ready Up";
+                startRunButton.NormalColor = isJoineeReady ? Color.DarkSlateGray : Color.DarkSlateBlue;
+                startRunButton.HoverColor = isJoineeReady ? Color.DarkSlateGray : Color.SlateBlue;
+                startRunButton.IsEnabled = !isJoineeReady;
             }
         }
-
-        Point mousePos = InputManager.GetMousePosition();
-
-        bool isClicked = InputManager.ConsumeUIClick();
-
-        startRunButton.Update(mousePos, isClicked);
-        multiplayerButton.Update(mousePos, isClicked);
-        backButton.Update(mousePos, isClicked);
     }
 
     public override void Draw(SpriteBatch spriteBatch, float alpha = 1f)
@@ -207,8 +231,10 @@ public class CharacterSelectState : GameState
 
         startRunButton.Draw(spriteBatch);
         multiplayerButton.Draw(spriteBatch);
+        if (SteamManager.CurrentLobby.HasValue) closeLobbyButton.Draw(spriteBatch);
         backButton.Draw(spriteBatch);
 
+        friendsOverlay.Draw(spriteBatch);
         spriteBatch.End();
     }
 }

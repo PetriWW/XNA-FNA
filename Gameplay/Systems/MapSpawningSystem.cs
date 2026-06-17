@@ -1,4 +1,5 @@
-﻿using Flecs.NET.Core;
+﻿using System;
+using Flecs.NET.Core;
 using MyGame.Engine.Maps;
 using MyGame.Engine.Networking;
 using MyGame.Gameplay.Components;
@@ -7,7 +8,6 @@ using Steamworks;
 using MemoryPack;
 using nkast.Aether.Physics2D.Dynamics;
 using AetherVector2 = nkast.Aether.Physics2D.Common.Vector2;
-using System;
 using MyGame.Engine.Core;
 
 namespace MyGame.Gameplay.Systems;
@@ -21,13 +21,17 @@ public static class MapSpawningSystem
             .Each((Iter it, int i, ref MapLoadRequest request) =>
             {
                 Entity reqEntity = it.Entity(i);
-                LevelData loadedRoom = MapLoader.LoadSingleLevel(request.MapPath);
+
+                // Safely copy values from the ref struct immediately
+                string mapPath = request.MapPath;
+                int localClassId = request.LocalClassId;
+
+                LevelData loadedRoom = MapLoader.LoadSingleLevel(mapPath);
 
                 EngineLogger.Log($"Spawn Point calculated: {loadedRoom.SpawnPoint.X}, {loadedRoom.SpawnPoint.Y}", "MAP");
 
                 world.Entity("GlobalMapData").Set(new MapInstance { Data = loadedRoom });
 
-                // Create level physics
                 var levelStaticBody = Game1.Instance.PhysicsWorld.CreateBody(AetherVector2.Zero, 0f, BodyType.Static);
                 foreach (var col in loadedRoom.Collisions)
                 {
@@ -41,21 +45,22 @@ public static class MapSpawningSystem
                     fixture.CollisionCategories = PhysicsLayers.Environment;
                 }
 
-                Entity localAvatar = PlayerFactory.CreateLocal(world, request.LocalClassId, loadedRoom.SpawnPoint.X, loadedRoom.SpawnPoint.Y);
+                Entity localAvatar = PlayerFactory.CreateLocal(world, localClassId, loadedRoom.SpawnPoint.X, loadedRoom.SpawnPoint.Y);
 
-                // Set initial ECS position components
                 localAvatar.Set(new Position { X = loadedRoom.SpawnPoint.X, Y = loadedRoom.SpawnPoint.Y });
                 localAvatar.Set(new PreviousPosition { X = loadedRoom.SpawnPoint.X, Y = loadedRoom.SpawnPoint.Y });
 
-                // Network Sync
-                if (SteamManager.IsSteamActive && SteamManager.CurrentLobby.HasValue)
+                ulong netId = localAvatar.Has<NetworkId>() ? localAvatar.Get<NetworkId>().Value : 0;
+
+                var lobby = SteamManager.CurrentLobby;
+                if (SteamManager.IsSteamActive && lobby.HasValue)
                 {
                     var handshakePayload = new PlayerSpawnPacket
                     {
-                        CharacterClassId = request.LocalClassId,
+                        CharacterClassId = localClassId,
                         StartX = loadedRoom.SpawnPoint.X,
                         StartY = loadedRoom.SpawnPoint.Y,
-                        EntityNetworkSequenceId = localAvatar.Get<NetworkId>().Value
+                        EntityNetworkSequenceId = netId
                     };
 
                     byte[] payload = MemoryPackSerializer.Serialize(handshakePayload);
@@ -63,12 +68,21 @@ public static class MapSpawningSystem
                     networkBuffer[0] = PacketTypes.Spawn;
                     Buffer.BlockCopy(payload, 0, networkBuffer, 1, payload.Length);
 
-                    foreach (var peer in SteamManager.CurrentLobby.Value.Members)
+                    // ARCHITECTURE FIX: Safely wrap Facepunch's internal iterator to prevent NREs
+                    // when the lobby member list hasn't finished downloading from Steam.
+                    try
                     {
-                        if (peer.Id != SteamClient.SteamId)
+                        foreach (var peer in lobby.Value.Members)
                         {
-                            SteamNetworking.SendP2PPacket(peer.Id, networkBuffer, networkBuffer.Length, 1, P2PSend.Reliable);
+                            if (peer.Id != SteamClient.SteamId)
+                            {
+                                SteamNetworking.SendP2PPacket(peer.Id, networkBuffer, networkBuffer.Length, 1, P2PSend.Reliable);
+                            }
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        EngineLogger.LogError("Steamworks delayed member sync. Handshake broadcast safely bypassed.", ex);
                     }
                 }
 

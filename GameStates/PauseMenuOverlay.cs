@@ -1,5 +1,4 @@
-﻿using System;
-using Microsoft.Xna.Framework;
+﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MyGame.Engine.States;
 using MyGame.Engine.UI;
@@ -23,8 +22,10 @@ public class PauseMenuOverlay
 
     private readonly Button continueButton;
     private readonly Button inviteButton;
+    private readonly Button closeLobbyButton;
     private readonly Button exitButton;
 
+    private readonly FriendsListOverlay friendsOverlay;
     private string networkStatusText = "Unknown Status";
 
     public PauseMenuOverlay(Game1 game, StateManager stateManager, bool isHost)
@@ -33,11 +34,13 @@ public class PauseMenuOverlay
         this.stateManager = stateManager;
         this.isHost = isHost;
 
+        friendsOverlay = new FriendsListOverlay(game);
         Texture2D uiTex = AssetManager.WhitePixel;
 
         continueButton = new Button(uiTex, Rectangle.Empty) { Text = "Continue", NormalColor = Color.DarkSlateGray, HoverColor = Color.SlateGray };
         inviteButton = new Button(uiTex, Rectangle.Empty) { Text = "Invite Friends", NormalColor = Color.DarkGreen, HoverColor = Color.Green };
-        exitButton = new Button(uiTex, Rectangle.Empty) { Text = "Disconnect & Exit", NormalColor = Color.DarkRed, HoverColor = Color.Red };
+        closeLobbyButton = new Button(uiTex, Rectangle.Empty) { Text = "Close Lobby (Play Solo)", NormalColor = Color.Firebrick, HoverColor = Color.IndianRed };
+        exitButton = new Button(uiTex, Rectangle.Empty) { Text = "Quit to Main Menu", NormalColor = Color.DarkRed, HoverColor = Color.Red };
 
         NetworkRouter.OnPauseStateChanged += HandlePauseState;
 
@@ -45,17 +48,25 @@ public class PauseMenuOverlay
 
         inviteButton.OnClick += async () =>
         {
-            if (this.isHost)
+            var lobby = SteamManager.CurrentLobby;
+            if (this.isHost || !lobby.HasValue)
             {
                 inviteButton.IsEnabled = false;
-                if (!SteamManager.CurrentLobby.HasValue)
+                if (!lobby.HasValue)
                 {
                     await SteamManager.CreateLobby();
                     SteamManager.CurrentLobby?.SetData("GameState", "InGame");
                 }
-                if (SteamManager.CurrentLobby.HasValue) SteamManager.OpenInviteOverlay();
+
+                if (SteamManager.CurrentLobby.HasValue) friendsOverlay.Show();
                 inviteButton.IsEnabled = true;
             }
+        };
+
+        closeLobbyButton.OnClick += () =>
+        {
+            SteamManager.LeaveLobby();
+            TransmitPauseState(false);
         };
 
         exitButton.OnClick += () =>
@@ -65,62 +76,68 @@ public class PauseMenuOverlay
         };
     }
 
-    public void Unload()
-    {
-        NetworkRouter.OnPauseStateChanged -= HandlePauseState;
-    }
+    public void Unload() => NetworkRouter.OnPauseStateChanged -= HandlePauseState;
 
     private void HandlePauseState(bool state) => IsPaused = state;
 
     public void Update()
     {
         UpdateNetworkStatusText();
+        friendsOverlay.Update();
+        if (friendsOverlay.IsVisible) return;
 
-        if (SteamManager.CurrentLobby.HasValue)
+        var lobby = SteamManager.CurrentLobby;
+        bool inLobby = lobby.HasValue;
+
+        if (inLobby)
         {
-            int currentMembers = SteamManager.CurrentLobby.Value.MemberCount;
+            int currentMembers = lobby.Value.MemberCount;
             if (IsPaused && currentMembers < previousMemberCount) TransmitPauseState(false);
             if (IsPaused && currentMembers > previousMemberCount && isHost) TransmitPauseState(true);
             previousMemberCount = currentMembers;
         }
 
-        if (InputManager.ConsumeAction(GameActions.Pause))
-        {
-            TransmitPauseState(!IsPaused);
-        }
+        if (InputManager.ConsumeAction(GameActions.Pause)) TransmitPauseState(!IsPaused);
 
         if (IsPaused)
         {
             var viewport = game.GraphicsDevice.Viewport;
-            int centerX = (viewport.Width / 2) - 125;
-            int startY = (viewport.Height / 2) - 80;
+            int centerX = (viewport.Width / 2) - 150;
+            int startY = (viewport.Height / 2) - 100;
+            int offset = 0;
 
-            continueButton.Bounds = new Rectangle(centerX, startY, 250, 45);
+            continueButton.Bounds = new Rectangle(centerX, startY + offset, 300, 45); offset += 60;
 
-            if (isHost)
+            bool isHostOrSolo = !inLobby || isHost;
+            if (isHostOrSolo)
             {
-                inviteButton.Bounds = new Rectangle(centerX, startY + 60, 250, 45);
-                exitButton.Bounds = new Rectangle(centerX, startY + 120, 250, 45);
+                inviteButton.Bounds = new Rectangle(centerX, startY + offset, 300, 45); offset += 60;
             }
-            else
+
+            if (inLobby)
             {
-                exitButton.Bounds = new Rectangle(centerX, startY + 60, 250, 45);
+                closeLobbyButton.Text = isHost ? "Close Lobby (Play Solo)" : "Leave Lobby (Play Solo)";
+                closeLobbyButton.Bounds = new Rectangle(centerX, startY + offset, 300, 45); offset += 60;
             }
+
+            exitButton.Bounds = new Rectangle(centerX, startY + offset, 300, 45);
 
             Point mousePos = InputManager.GetMousePosition();
             bool isClicked = InputManager.ConsumeUIClick();
 
             continueButton.Update(mousePos, isClicked);
-            if (isHost) inviteButton.Update(mousePos, isClicked);
+            if (isHostOrSolo) inviteButton.Update(mousePos, isClicked);
+            if (inLobby) closeLobbyButton.Update(mousePos, isClicked);
             exitButton.Update(mousePos, isClicked);
         }
     }
 
     private void UpdateNetworkStatusText()
     {
+        var lobby = SteamManager.CurrentLobby;
         if (!SteamManager.IsSteamActive) networkStatusText = "Network Offline (Local Solo)";
-        else if (!SteamManager.CurrentLobby.HasValue) networkStatusText = isHost ? "Playing Solo (Lobby Closed)" : "Connection to Host Lost!";
-        else networkStatusText = isHost ? $"Hosting Match: {SteamManager.CurrentLobby.Value.MemberCount} Players" : "Connected to Host";
+        else if (!lobby.HasValue) networkStatusText = "Playing Solo (Offline)";
+        else networkStatusText = isHost ? $"Hosting Match: {lobby.Value.MemberCount} Players" : "Connected to Host";
     }
 
     private void TransmitPauseState(bool enforcePause)
@@ -128,9 +145,10 @@ public class PauseMenuOverlay
         IsPaused = enforcePause;
         signalBuffer[0] = IsPaused ? PacketTypes.PauseGame : PacketTypes.ResumeGame;
 
-        if (SteamManager.CurrentLobby.HasValue)
+        var lobby = SteamManager.CurrentLobby;
+        if (lobby.HasValue)
         {
-           foreach (var member in SteamManager.CurrentLobby.Value.Members)
+           foreach (var member in lobby.Value.Members)
            {
               if (member.Id != SteamClient.SteamId)
                  SteamNetworking.SendP2PPacket(member.Id, signalBuffer, signalBuffer.Length, 2, P2PSend.Reliable);
@@ -146,16 +164,22 @@ public class PauseMenuOverlay
             spriteBatch.Draw(AssetManager.WhitePixel, viewport.Bounds, Color.Black * 0.85f);
 
             continueButton.Draw(spriteBatch);
-            if (isHost) inviteButton.Draw(spriteBatch);
+
+            bool isHostOrSolo = !SteamManager.CurrentLobby.HasValue || isHost;
+            if (isHostOrSolo) inviteButton.Draw(spriteBatch);
+
+            if (SteamManager.CurrentLobby.HasValue) closeLobbyButton.Draw(spriteBatch);
             exitButton.Draw(spriteBatch);
 
             if (AssetManager.IsFontLoaded)
             {
                 SpriteFontBase font = AssetManager.GetFont(24f);
                 var textSize = font.MeasureString(networkStatusText);
-                System.Numerics.Vector2 textPos = new System.Numerics.Vector2((viewport.Width - textSize.X) / 2f, (viewport.Height / 2f) - 150);
+                System.Numerics.Vector2 textPos = new System.Numerics.Vector2((viewport.Width - textSize.X) / 2f, (viewport.Height / 2f) - 170);
                 font.DrawText(AssetManager.FontRenderer, networkStatusText, textPos, new FSColor(135, 206, 250, 255));
             }
+
+            friendsOverlay.Draw(spriteBatch);
         }
     }
 }

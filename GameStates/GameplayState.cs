@@ -30,6 +30,13 @@ public class GameplayState : GameState
     public const int VirtualHeight = 360;
     private readonly bool isHostOrigin;
 
+    private Query<Position, PreviousPosition> _localPlayerQuery;
+
+    // Static caches to completely eliminate runtime lambda allocations
+    private static float _drawAlpha;
+    private static Camera2D _drawCamera = null!;
+    private static readonly List<Entity> _cleanupList = new(256);
+
     public bool IsSimulationPaused => pauseMenu != null && pauseMenu.IsPaused;
 
     public GameplayState(Game1 game, StateManager stateManager, Flecs.NET.Core.World sharedWorld, int chosenClassId, string mapPath)
@@ -49,6 +56,8 @@ public class GameplayState : GameState
         camera = new Camera2D();
         camera.Zoom = 1.0f;
 
+        _localPlayerQuery = ecsWorld.QueryBuilder<Position, PreviousPosition>().With<LocalPlayerTag>().Build();
+
         if (isHostOrigin && SteamManager.IsSteamActive && SteamManager.CurrentLobby.HasValue)
         {
             SteamManager.CurrentLobby.Value.SetData("GameState", "InGame");
@@ -61,30 +70,42 @@ public class GameplayState : GameState
     {
         pauseMenu.Unload();
 
-        var garbageCollectionList = new List<Entity>();
+        // High-performance, allocation-free sweep using cached list capacity
+        _cleanupList.Clear();
         using var cleanupQuery = ecsWorld.QueryBuilder().With<MatchEntityTag>().Build();
-        cleanupQuery.Each((Entity e) => { garbageCollectionList.Add(e); });
+        cleanupQuery.Each((Entity e) => { _cleanupList.Add(e); });
 
-        foreach (var entity in garbageCollectionList) if (entity.IsAlive()) entity.Destruct();
+        for (int i = 0; i < _cleanupList.Count; i++)
+        {
+            if (_cleanupList[i].IsAlive())
+            {
+                _cleanupList[i].Destruct();
+            }
+        }
+        _cleanupList.Clear();
 
-        ecsWorld.Entity("GlobalMapData").Destruct();
+        var mapEntity = ecsWorld.Entity("GlobalMapData");
+        if (mapEntity.Has<MapInstance>())
+        {
+            mapEntity.Remove<MapInstance>();
+        }
 
         virtualRenderTarget?.Dispose();
         AssetManager.UnloadLevelAssets();
         game.PhysicsWorld.Clear();
-        NetworkReceiverSystem.ClearShadows();
+        NetworkRegistry.ClearAll();
     }
 
     public override void Update(GameTime gameTime)
     {
         if (!SteamManager.IsSteamActive || !SteamManager.CurrentLobby.HasValue)
         {
-           if (!isHostOrigin)
-           {
-               SteamManager.LeaveLobby();
-               stateManager.ChangeState(new MainMenuState(game, stateManager));
-               return;
-           }
+            if (!isHostOrigin)
+            {
+                SteamManager.LeaveLobby();
+                stateManager.ChangeState(new MainMenuState(game, stateManager));
+                return;
+            }
         }
 
         pauseMenu.Update();
@@ -92,35 +113,24 @@ public class GameplayState : GameState
 
         if (!IsSimulationPaused)
         {
-           ecsWorld.Query<Position, PreviousPosition>().Each((ref Position pos, ref PreviousPosition prevPos) => {
-               prevPos.X = pos.X; prevPos.Y = pos.Y;
-           });
-
-           game.PhysicsWorld.Step(dt);
-           ecsWorld.Progress(dt);
+            game.PhysicsWorld.Step(dt);
+            ecsWorld.Progress(dt);
         }
     }
 
     public override void Draw(SpriteBatch spriteBatch, float alpha = 1f)
     {
-        ecsWorld.Query<Position, PreviousPosition>().Each((Iter it, int row, ref Position pos, ref PreviousPosition prevPos) =>
-        {
-            Entity e = it.Entity(row);
-            if (e.Has<LocalPlayerTag>())
-            {
-                camera.Position = new Vector2(
-                    MathHelper.Lerp(prevPos.X, pos.X, alpha),
-                    MathHelper.Lerp(prevPos.Y, pos.Y, alpha)
-                );
-            }
-        });
+        // Inject variables into static fields right before execution context changes
+        _drawAlpha = alpha;
+        _drawCamera = camera;
 
-        Entity mapDataE = ecsWorld.Entity("GlobalMapData");
-        if (mapDataE.Has<MapInstance>())
+        _localPlayerQuery.Each((ref Position pos, ref PreviousPosition prevPos) =>
         {
-            var rData = mapDataE.Get<MapInstance>().Data;
-            camera.Limits = new Rectangle(0, 0, rData.Width, rData.Height);
-        }
+            _drawCamera.Position = new Vector2(
+                MathHelper.Lerp(prevPos.X, pos.X, _drawAlpha),
+                MathHelper.Lerp(prevPos.Y, pos.Y, _drawAlpha)
+            );
+        });
 
         game.GraphicsDevice.SetRenderTarget(virtualRenderTarget);
         game.GraphicsDevice.Clear(XnaColor.FromNonPremultiplied(40, 35, 50, 255));
@@ -128,18 +138,8 @@ public class GameplayState : GameState
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied, SamplerState.PointClamp, null, null, null, camera.GetViewMatrix(VirtualWidth, VirtualHeight));
 
         TileRenderSystem.Draw(ecsWorld, camera, VirtualWidth, VirtualHeight);
-
-        ecsWorld.Query<Position, PreviousPosition, CharacterClass>().Each((Iter it, int row, ref Position pos, ref PreviousPosition prevPos, ref CharacterClass cClass) =>
-        {
-            Entity e = it.Entity(row);
-            XnaColor renderColor = cClass.Id == 0 ? XnaColor.Orange : XnaColor.Cyan;
-            if (e.Has<RemotePlayerTag>()) renderColor = XnaColor.LightSkyBlue;
-
-            float renderX = MathHelper.Lerp(prevPos.X, pos.X, alpha);
-            float renderY = MathHelper.Lerp(prevPos.Y, pos.Y, alpha);
-
-            spriteBatch.Draw(AssetManager.WhitePixel, new Rectangle((int)renderX - 5, (int)renderY - 12, 10, 24), renderColor);
-        });
+        PlayerRenderSystem.Draw(spriteBatch, alpha);
+        ProjectileRenderSystem.Draw(spriteBatch, alpha);
 
         spriteBatch.End();
 
@@ -156,9 +156,6 @@ public class GameplayState : GameState
 
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);
         spriteBatch.Draw(virtualRenderTarget, destRect, Color.White);
-        spriteBatch.End();
-
-        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, null);
         pauseMenu.Draw(spriteBatch);
         spriteBatch.End();
     }

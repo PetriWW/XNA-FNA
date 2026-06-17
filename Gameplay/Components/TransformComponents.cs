@@ -29,3 +29,8 @@ public struct PreviousVelocity
 	public float X;
 	public float Y;
 }
+
+public struct FacingDirection
+{
+	public int Value;
+}
