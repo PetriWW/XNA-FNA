@@ -17,7 +17,6 @@ public class LevelData
     public int Height { get; set; }
     public Vector2 SpawnPoint { get; set; } = new Vector2(100, 100);
 
-    // ARCHITECTURE FIX: Defaulted to true for your dedicated Top-Down vision
     public bool IsTopDown { get; set; } = true;
 
     public const int ChunkSize = 256;
@@ -44,20 +43,47 @@ public static class MapLoader
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         LdtkRoot targetRoot = JsonSerializer.Deserialize<LdtkRoot>(jsonContent, options) ?? throw new Exception($"[MapLoader Error]");
 
-        LdtkLevel levelData = targetRoot.Levels[0];
+        LdtkLevel? foundLevel = null;
 
-        if (!string.IsNullOrEmpty(levelIdentifier))
+        // ARCHITECTURE FIX: Scans Worlds first to support LDtk 1.5.3 Multi-World projects
+        if (targetRoot.Worlds != null && targetRoot.Worlds.Length > 0)
         {
-            var found = targetRoot.Levels.FirstOrDefault(l => l.Identifier.Equals(levelIdentifier, StringComparison.OrdinalIgnoreCase));
-            if (found != null)
+            foreach (var w in targetRoot.Worlds)
             {
-                levelData = found;
+                // If the user named the World "MacroSpace" but left the level inside named "Level_0"
+                if (w.Identifier.Equals(levelIdentifier, StringComparison.OrdinalIgnoreCase) && w.Levels.Length > 0)
+                {
+                    foundLevel = w.Levels[0];
+                    break;
+                }
+
+                // Or if they named the internal level "MacroSpace"
+                var l = w.Levels.FirstOrDefault(x => x.Identifier.Equals(levelIdentifier, StringComparison.OrdinalIgnoreCase));
+                if (l != null)
+                {
+                    foundLevel = l;
+                    break;
+                }
             }
-            else
-            {
-                // ARCHITECTURE FIX: Warns you via the F1 Console if your LDtk level name doesn't match
-                EngineLogger.Log($"Level '{levelIdentifier}' not found in LDtk. Falling back to '{levelData.Identifier}'. Check your spelling in LDtk!", "WARNING");
-            }
+        }
+
+        // Fallback to standard root levels
+        if (foundLevel == null && targetRoot.Levels != null && targetRoot.Levels.Length > 0)
+        {
+            foundLevel = targetRoot.Levels.FirstOrDefault(l => l.Identifier.Equals(levelIdentifier, StringComparison.OrdinalIgnoreCase));
+        }
+
+        LdtkLevel levelData;
+        if (foundLevel != null)
+        {
+            levelData = foundLevel;
+        }
+        else
+        {
+            levelData = targetRoot.Levels?.FirstOrDefault() ?? targetRoot.Worlds?.FirstOrDefault()?.Levels?.FirstOrDefault() ?? throw new Exception("LDtk file has no levels!");
+
+            // Provides visual feedback in the F1 console if you misspell a dimension name
+            EngineLogger.Log($"Dimension '{levelIdentifier}' not found in LDtk. Falling back to '{levelData.Identifier}'. Check your spelling in LDtk!", "WARNING");
         }
 
         if (!string.IsNullOrEmpty(levelData.ExternalRelPath))
@@ -77,7 +103,6 @@ public static class MapLoader
         {
             foreach (var field in levelData.FieldInstances)
             {
-                // Allows you to override to platformer manually in LDtk if you ever want to
                 if (field.Identifier == "IsTopDown" && field.Value is JsonElement je && je.ValueKind == JsonValueKind.False)
                 {
                     roomData.IsTopDown = false;

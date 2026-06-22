@@ -6,7 +6,20 @@ namespace MyGame.Engine.Platform;
 public class LdtkRoot
 {
     [JsonPropertyName("levels")]
-    public LdtkLevel[] Levels { get; set; } = null!;
+    public LdtkLevel[] Levels { get; set; } = Array.Empty<LdtkLevel>();
+
+    // ARCHITECTURE FIX: Supports LDtk 1.5.3 Multi-World schema
+    [JsonPropertyName("worlds")]
+    public LdtkWorld[] Worlds { get; set; } = Array.Empty<LdtkWorld>();
+}
+
+public class LdtkWorld
+{
+    [JsonPropertyName("identifier")]
+    public string Identifier { get; set; } = string.Empty;
+
+    [JsonPropertyName("levels")]
+    public LdtkLevel[] Levels { get; set; } = Array.Empty<LdtkLevel>();
 }
 
 public class LdtkLevel
@@ -89,7 +102,6 @@ public class LdtkEntityInstance
     [JsonPropertyName("px")]
     public int[] Px { get; set; } = null!;
 
-    // ARCHITECTURE FIX: Required for GameplayState to parse TargetDimensions
     [JsonPropertyName("fieldInstances")]
     public LdtkFieldInstance[] FieldInstances { get; set; } = Array.Empty<LdtkFieldInstance>();
 }
